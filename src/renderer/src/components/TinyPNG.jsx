@@ -66,6 +66,8 @@ export default function TinyPNG() {
   const [stats, setStats] = useState(null)
   const [running, setRunning] = useState(false)
   const [total, setTotal] = useState(0)
+  // paused: null | { remaining: string[] }  —— Key 耗尽暂停时保存未处理文件列表
+  const [paused, setPaused] = useState(null)
   const logRef = useRef(null)
 
   /** 将日志容器滚动到底部（延迟 50ms 等待 DOM 更新） */
@@ -131,16 +133,21 @@ export default function TinyPNG() {
   /**
    * 开始批量压缩
    *
-   * 注册全部 IPC 事件监听器后触发压缩任务，任务完成时清理所有监听器。
-   * 使用随机轮询策略从有效 Key 列表中选取本次请求使用的 Key。
+   * @param {string[]} [filesToProcess] 传入时为"继续压缩"场景，使用指定文件列表；
+   *                                    不传时为全新压缩，使用 paths 状态。
    */
-  const startCompress = () => {
+  const startCompress = (filesToProcess) => {
+    const targetFiles = filesToProcess ?? paths
     const validKeys = keys.map((k) => k.value.trim()).filter(Boolean)
     if (validKeys.length === 0) return alert('请先填写 TinyPNG API Key')
-    if (paths.length === 0) return alert('请先添加文件或目录')
+    if (targetFiles.length === 0) return alert('请先添加文件或目录')
 
-    setLogs([])
-    setStats(null)
+    // 全新开始时清空日志；继续压缩时保留已有日志（追加新结果）
+    if (!filesToProcess) {
+      setLogs([])
+      setStats(null)
+    }
+    setPaused(null)
     setTotal(0)
     setRunning(true)
 
@@ -156,17 +163,27 @@ export default function TinyPNG() {
         prev.map((k) => (k.value.trim() === key ? { ...k, status: 'valid', compressionCount } : k))
       )
     })
-    const cleanDone = window.api.onImageDone((s) => {
-      setStats(s)
-      setRunning(false)
-      // 任务完成后清理所有 IPC 监听器，防止泄漏
+    const cleanup = () => {
       cleanTotal()
       cleanProgress()
       cleanKeyCount()
       cleanDone()
+      cleanPaused()
+    }
+    const cleanDone = window.api.onImageDone((s) => {
+      setStats(s)
+      setRunning(false)
+      // 任务完成后清理所有 IPC 监听器，防止泄漏
+      cleanup()
+    })
+    const cleanPaused = window.api.onImagePaused(({ remaining }) => {
+      // Key 全部耗尽：暂停任务，保存剩余文件列表，等待用户添加新 Key 后继续
+      setPaused({ remaining })
+      setRunning(false)
+      cleanup()
     })
 
-    window.api.compressImage({ paths, apiKeys: validKeys })
+    window.api.compressImage({ paths: targetFiles, apiKeys: validKeys })
   }
 
   return (
@@ -321,19 +338,44 @@ export default function TinyPNG() {
           )}
         </section>
 
-        {/* Start button */}
-        <button
-          onClick={startCompress}
-          disabled={running}
-          className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors
-            ${
-              running
-                ? 'bg-blue-300 text-white cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-        >
-          {running ? `⏳ 压缩中… (${logs.length}/${total})` : '🚀 开始压缩'}
-        </button>
+        {/* Start button / Paused state */}
+        {paused ? (
+          <>
+            {/* 暂停提示 */}
+            <section className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-sm text-orange-800">
+              ⚠️ 所有 API Key 已达当月上限，还有{' '}
+              <span className="font-bold">{paused.remaining.length}</span> 张图片未处理。
+              请在上方添加新 Key 后点击继续。
+            </section>
+            <div className="flex gap-3">
+              <button
+                onClick={() => startCompress(paused.remaining)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              >
+                ▶ 继续压缩（{paused.remaining.length} 张）
+              </button>
+              <button
+                onClick={() => setPaused(null)}
+                className="px-4 py-2.5 rounded-xl text-sm text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-200 transition-colors"
+              >
+                放弃
+              </button>
+            </div>
+          </>
+        ) : (
+          <button
+            onClick={() => startCompress()}
+            disabled={running}
+            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors
+              ${
+                running
+                  ? 'bg-blue-300 text-white cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+          >
+            {running ? `⏳ 压缩中… (${logs.length}/${total})` : '🚀 开始压缩'}
+          </button>
+        )}
 
         {/* Log */}
         {logs.length > 0 && (

@@ -11,9 +11,9 @@ import AudioTool from './components/AudioTool'
 
 /** 侧边栏导航配置，每项对应一个工具页签 */
 const TABS = [
-  { id: 'png', label: '图片压缩', icon: '🖼', desc: 'PNG / JPG / JPEG' },
-  { id: 'mp3', label: 'MP3 压缩', icon: '🎵', desc: '.mp3' },
-  { id: 'ogg', label: 'OGG 压缩', icon: '🎶', desc: '.ogg' }
+  { id: 'png', label: '图片压缩', icon: '', desc: 'PNG / JPG / JPEG' },
+  { id: 'mp3', label: 'MP3 压缩', icon: '', desc: '.mp3' },
+  { id: 'ogg', label: 'OGG 压缩', icon: '', desc: '.ogg' }
 ]
 
 /**
@@ -32,7 +32,6 @@ function App() {
       <aside className="w-52 flex flex-col bg-slate-900 text-slate-100 shrink-0">
         <div className="px-5 py-5 border-b border-slate-700">
           <h1 className="text-xl font-bold tracking-wide text-white">Tiny App</h1>
-          <p className="text-xs text-slate-400 mt-0.5">资源压缩工具集</p>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">

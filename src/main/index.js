@@ -282,18 +282,18 @@ app.whenReady().then(() => {
       return available[Math.floor(Math.random() * available.length)]
     }
 
-    for (const file of files) {
+    // 用索引遍历，以便在 key 耗尽时能拿到剩余文件列表
+    let allKeysExhausted = false
+
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi]
       let key = pickKey()
 
-      // 所有 key 均已耗尽，直接标记失败
+      // 循环开始时所有 key 已耗尽 → 暂停，告知剩余文件
       if (!key) {
-        stats.failed++
-        event.sender.send('compress:image:progress', {
-          file,
-          status: 'error',
-          error: '所有 API Key 已达当月上限'
-        })
-        continue
+        event.sender.send('compress:image:paused', { remaining: files.slice(fi) })
+        allKeysExhausted = true
+        break
       }
 
       let done = false
@@ -332,13 +332,9 @@ app.whenReady().then(() => {
             event.sender.send('compress:image:keycount', { key, compressionCount: 500 })
             key = pickKey()
             if (!key) {
-              // 没有可用 key 了
-              stats.failed++
-              event.sender.send('compress:image:progress', {
-                file,
-                status: 'error',
-                error: '所有 API Key 已达当月上限'
-              })
+              // 中途耗尽：当前文件也未处理，一并放入剩余列表
+              event.sender.send('compress:image:paused', { remaining: files.slice(fi) })
+              allKeysExhausted = true
               done = true
             }
             // key 不为 null 则继续 while 循环用新 key 重试
@@ -354,8 +350,15 @@ app.whenReady().then(() => {
           }
         }
       }
+      if (allKeysExhausted) break
     }
-    event.sender.send('compress:image:done', { ...stats, savedBytes: formatSize(stats.savedBytes) })
+    // 全部处理完毕才发送 done；key 耗尽暂停时不发送 done
+    if (!allKeysExhausted) {
+      event.sender.send('compress:image:done', {
+        ...stats,
+        savedBytes: formatSize(stats.savedBytes)
+      })
+    }
   })
 
   // ── IPC: Audio ───────────────────────────────────────────────────────────

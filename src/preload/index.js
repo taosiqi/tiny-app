@@ -47,6 +47,11 @@ const api = {
     ipcRenderer.on('compress:image:done', (_, v) => cb(v))
     return () => ipcRenderer.removeAllListeners('compress:image:done')
   },
+  /** 订阅"Key 耗尽、任务暂停"事件，payload 含 remaining 文件数组，返回清理函数 */
+  onImagePaused: (cb) => {
+    ipcRenderer.on('compress:image:paused', (_, v) => cb(v))
+    return () => ipcRenderer.removeAllListeners('compress:image:paused')
+  },
 
   // ── 音频压缩（ffmpeg） ────────────────────────────────────────────────────
   /** 触发音频批量压缩（单向发送，结果通过事件回调） */
