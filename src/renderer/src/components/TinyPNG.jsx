@@ -135,14 +135,16 @@ export default function TinyPNG() {
    *
    * @param {string[]} [filesToProcess] 传入时为"继续压缩"场景，使用指定文件列表；
    *                                    不传时为全新压缩，使用 paths 状态。
+   * @param {object}  [opts]
+   * @param {boolean} [opts.isRetry=false] 为 true 时，进度结果替换日志中同路径的旧条目而非追加
    */
-  const startCompress = (filesToProcess) => {
+  const startCompress = (filesToProcess, { isRetry = false } = {}) => {
     const targetFiles = filesToProcess ?? paths
     const validKeys = keys.map((k) => k.value.trim()).filter(Boolean)
     if (validKeys.length === 0) return alert('请先填写 TinyPNG API Key')
     if (targetFiles.length === 0) return alert('请先添加文件或目录')
 
-    // 全新开始时清空日志；继续压缩时保留已有日志（追加新结果）
+    // 全新开始时清空日志；继续/重试时保留已有日志
     if (!filesToProcess) {
       setLogs([])
       setStats(null)
@@ -155,7 +157,18 @@ export default function TinyPNG() {
       setTotal(n)
     })
     const cleanProgress = window.api.onImageProgress((item) => {
-      setLogs((prev) => [...prev, item])
+      if (isRetry) {
+        // 重试：替换同路径的最后一条错误条目；若找不到则追加
+        setLogs((prev) => {
+          const idx = prev.findLastIndex((l) => l.file === item.file && l.status === 'error')
+          if (idx === -1) return [...prev, item]
+          const next = [...prev]
+          next[idx] = item
+          return next
+        })
+      } else {
+        setLogs((prev) => [...prev, item])
+      }
       scrollBottom()
     })
     const cleanKeyCount = window.api.onImageKeyCount(({ key, compressionCount }) => {
@@ -382,9 +395,24 @@ export default function TinyPNG() {
           <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
               <span className="text-xs font-medium text-gray-600">处理日志</span>
-              <span className="text-xs text-gray-400">
-                {logs.length} / {total}
-              </span>
+              <div className="flex items-center gap-3">
+                {!running && logs.some((l) => l.status === 'error') && (
+                  <button
+                    onClick={() =>
+                      startCompress(
+                        logs.filter((l) => l.status === 'error').map((l) => l.file),
+                        { isRetry: true }
+                      )
+                    }
+                    className="text-xs px-2 py-0.5 rounded bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                  >
+                    重试失败 ({logs.filter((l) => l.status === 'error').length})
+                  </button>
+                )}
+                <span className="text-xs text-gray-400">
+                  {logs.length} / {total}
+                </span>
+              </div>
             </div>
             <ul ref={logRef} className="max-h-52 overflow-y-auto divide-y divide-gray-50">
               {logs.map((item, i) => (
@@ -411,12 +439,22 @@ export default function TinyPNG() {
                     </span>
                   )}
                   {item.status === 'error' && (
-                    <span
-                      className="text-xs text-red-500 shrink-0 max-w-40 truncate"
-                      title={item.error}
-                    >
-                      {item.error}
-                    </span>
+                    <>
+                      <span
+                        className="text-xs text-red-500 shrink-0 max-w-32 truncate"
+                        title={item.error}
+                      >
+                        {item.error}
+                      </span>
+                      <button
+                        onClick={() => startCompress([item.file], { isRetry: true })}
+                        disabled={running}
+                        className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 disabled:opacity-30 transition-colors"
+                        title="重试"
+                      >
+                        ↺
+                      </button>
+                    </>
                   )}
                 </li>
               ))}
