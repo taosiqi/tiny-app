@@ -1,10 +1,10 @@
 {
   "name": "tiny-app",
   "version": "1.0.0",
-  "description": "An Electron application with React",
+  "description": "一款基于 Electron 的桌面工具，支持 TinyPNG 图片压缩与音频文件压缩",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": "taosiqi",
+  "homepage": "https://github.com/taosiqi/tiny-app",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -47,5 +47,6 @@
       "esbuild",
       "ffmpeg-static"
     ]
-  }
+  },
+  "packageManager": "pnpm@10.10.0+sha512.d615db246fe70f25dcfea6d8d73dee782ce23e2245e3c4f6f888249fb568149318637dca73c2c5c8ef2a4ca0d5657fb9567188bfab47f566d1ee6ce987815c39"
 }

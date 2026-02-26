@@ -1,13 +1,28 @@
+/**
+ * @file App.jsx
+ * @description 应用根组件
+ *
+ * 维护当前激活的工具页签（active），通过侧边栏导航在
+ * 图片压缩（TinyPNG）和音频压缩（AudioTool）之间切换。
+ */
 import { useState } from 'react'
 import TinyPNG from './components/TinyPNG'
 import AudioTool from './components/AudioTool'
 
+/** 侧边栏导航配置，每项对应一个工具页签 */
 const TABS = [
   { id: 'png', label: '图片压缩', icon: '🖼', desc: 'PNG / JPG / JPEG' },
   { id: 'mp3', label: 'MP3 压缩', icon: '🎵', desc: '.mp3' },
   { id: 'ogg', label: 'OGG 压缩', icon: '🎶', desc: '.ogg' }
 ]
 
+/**
+ * App 根组件
+ *
+ * 渲染两栏布局：左侧固定侧边栏（导航）+ 右侧内容区（工具组件）。
+ * `active` 状态决定当前展示哪个工具；AudioTool 使用 `key` prop
+ * 确保切换 mp3/ogg 时重置组件内部状态。
+ */
 function App() {
   const [active, setActive] = useState('png')
 

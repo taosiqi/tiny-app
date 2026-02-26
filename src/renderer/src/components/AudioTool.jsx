@@ -1,11 +1,21 @@
+/**
+ * @file AudioTool.jsx
+ * @description 音频压缩工具组件
+ *
+ * 支持 MP3 和 OGG 两种格式，通过 `format` prop 区分。
+ * 内部通过 IPC 调用主进程的 ffmpeg 完成实际压缩，
+ * 并以日志列表形式实时展示每个文件的处理结果。
+ */
 import { useState, useRef, useCallback } from 'react'
 
+/** 日志条目状态 → Tailwind 色彩类映射 */
 const STATUS_CLASS = {
   success: 'bg-green-100 text-green-700',
   skipped: 'bg-yellow-100 text-yellow-700',
   error: 'bg-red-100 text-red-700'
 }
 
+/** 各音频格式的 UI 元数据与文件过滤配置 */
 const FORMAT_META = {
   mp3: {
     icon: '🎵',
@@ -23,10 +33,17 @@ const FORMAT_META = {
   }
 }
 
+/** 从完整路径中提取文件名（兼容 Windows 反斜杠） */
 function basename(p) {
   return p.replace(/\\/g, '/').split('/').pop()
 }
 
+/**
+ * 音频压缩组件
+ *
+ * @component
+ * @param {'mp3'|'ogg'} format - 目标音频格式
+ */
 export default function AudioTool({ format }) {
   const meta = FORMAT_META[format]
   const [paths, setPaths] = useState([])
@@ -36,6 +53,7 @@ export default function AudioTool({ format }) {
   const [total, setTotal] = useState(0)
   const logRef = useRef(null)
 
+  /** 将日志容器滚动到底部（延迟 50ms 等待 DOM 更新） */
   const scrollBottom = useCallback(() => {
     setTimeout(() => {
       if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
@@ -54,6 +72,11 @@ export default function AudioTool({ format }) {
 
   const removePath = (p) => setPaths((prev) => prev.filter((x) => x !== p))
 
+  /**
+   * 开始批量压缩
+   *
+   * 注册全部 IPC 事件监听器后触发压缩任务，任务完成时清理所有监听器。
+   */
   const startCompress = () => {
     if (paths.length === 0) return alert('请先添加文件或目录')
 
@@ -70,6 +93,7 @@ export default function AudioTool({ format }) {
     const cleanDone = window.api.onAudioDone((s) => {
       setStats(s)
       setRunning(false)
+      // 任务完成后清理所有 IPC 监听器，防止泄漏
       cleanTotal()
       cleanProgress()
       cleanDone()

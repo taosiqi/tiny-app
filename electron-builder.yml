@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: tiny-app
+appId: com.taosiqi.tiny-app
+productName: Tiny App
 directories:
   buildResources: build
 files:
@@ -38,13 +38,13 @@ linux:
     - AppImage
     - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: taosiqi
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
   provider: generic
-  url: https://example.com/auto-updates
+  url: https://github.com/taosiqi/tiny-app/releases/download/latest
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
