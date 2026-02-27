@@ -1,5 +1,5 @@
 appId: com.taosiqi.tiny-app
-productName: 资源压缩
+productName: tiny
 directories:
   buildResources: build
 files:

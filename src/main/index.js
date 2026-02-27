@@ -39,7 +39,7 @@ const ffmpegBin = app.isPackaged
  */
 function createWindow() {
   const mainWindow = new BrowserWindow({
-    title: '资源压缩',
+    title: 'tiny',
     width: 960,
     height: 700,
     minWidth: 760,
