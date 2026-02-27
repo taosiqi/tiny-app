@@ -60,7 +60,7 @@ function App() {
         {/* Sidebar */}
         <aside className="w-52 flex flex-col bg-slate-900 text-slate-100 shrink-0">
           <div className="px-5 py-5 border-b border-slate-700">
-            <h1 className="text-xl font-bold tracking-wide text-white">Tiny 资源压缩</h1>
+            <h1 className="text-xl font-bold tracking-wide text-white">无损压缩</h1>
           </div>
 
           <nav className="flex-1 px-3 py-4 space-y-1">
