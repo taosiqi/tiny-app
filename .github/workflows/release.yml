@@ -31,6 +31,9 @@ jobs:
         run: pnpm build:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          # CI 在境外，使用官方源，避免 npmmirror 缺少 arm64 的 dmg-builder
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
 
       - name: Upload Mac artifacts
         uses: softprops/action-gh-release@v2
