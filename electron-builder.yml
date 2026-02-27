@@ -1,5 +1,5 @@
 appId: com.taosiqi.tiny-app
-productName: Tiny App
+productName: 资源压缩
 directories:
   buildResources: build
 files:
@@ -24,6 +24,7 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  identity: '-'
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
