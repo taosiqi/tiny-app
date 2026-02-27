@@ -60,6 +60,9 @@ jobs:
 
       - name: Build Windows
         run: pnpm build:win
+        env:
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
 
       - name: Upload Windows artifacts
         uses: softprops/action-gh-release@v2
