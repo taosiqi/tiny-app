@@ -1,6 +1,6 @@
 {
   "name": "tiny-app",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "一款基于 Electron 的桌面工具，支持 TinyPNG 图片压缩与音频文件压缩",
   "main": "./out/main/index.js",
   "author": "taosiqi",
@@ -15,9 +15,10 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:win:dir": "npm run build && electron-builder --win --dir",
-    "build:mac": "npm run build && electron-builder --mac --x64 --arm64",
-    "build:mac:x64": "npm run build && electron-builder --mac --x64",
-    "build:mac:arm64": "npm run build && electron-builder --mac --arm64",
+    "build:mac": "npm run build && electron-builder --mac --x64 --arm64 && npm run resign:mac",
+    "build:mac:x64": "npm run build && electron-builder --mac --x64 && npm run resign:mac",
+    "build:mac:arm64": "npm run build && electron-builder --mac --arm64 && npm run resign:mac",
+    "resign:mac": "find dist -name '*.app' -maxdepth 3 2>/dev/null | xargs -I {} codesign --force --deep --sign - \"{}\" && echo 'Re-signed successfully'",
     "build:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
