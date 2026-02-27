@@ -9,6 +9,8 @@
  *  - API Key 列表持久化至 localStorage
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
+import ComparePanel from './ComparePanel'
+import { basename } from '../utils/fileUtils'
 
 /** localStorage 中存储 API Key 列表的键名 */
 const STORAGE_KEY = 'tinypng_keys'
@@ -44,11 +46,6 @@ const STATUS_CLASS = {
   pending: 'bg-gray-100 text-gray-500'
 }
 
-/** 从完整路径中提取文件名（兼容 Windows 反斜杠） */
-function basename(p) {
-  return p.replace(/\\/g, '/').split('/').pop()
-}
-
 /** TinyPNG 每个 API Key 每月免费压缩次数上限 */
 const KEY_LIMIT = 500
 
@@ -68,6 +65,7 @@ export default function TinyPNG() {
   const [total, setTotal] = useState(0)
   // paused: null | { remaining: string[] }  —— Key 耗尽暂停时保存未处理文件列表
   const [paused, setPaused] = useState(null)
+  const [activeTab, setActiveTab] = useState('log')
   const logRef = useRef(null)
 
   /** 将日志容器滚动到底部（延迟 50ms 等待 DOM 更新） */
@@ -148,6 +146,7 @@ export default function TinyPNG() {
     if (!filesToProcess) {
       setLogs([])
       setStats(null)
+      setActiveTab('log')
     }
     setPaused(null)
     setTotal(0)
@@ -390,13 +389,41 @@ export default function TinyPNG() {
           </button>
         )}
 
-        {/* Log */}
+        {/* Log / Compare tabs */}
         {logs.length > 0 && (
           <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-600">处理日志</span>
+              <div className="flex gap-0.5">
+                <button
+                  onClick={() => setActiveTab('log')}
+                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                    activeTab === 'log'
+                      ? 'bg-gray-100 text-gray-700 font-medium'
+                      : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  处理日志
+                </button>
+                {stats && (
+                  <button
+                    onClick={() => setActiveTab('compare')}
+                    className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                      activeTab === 'compare'
+                        ? 'bg-blue-50 text-blue-600 font-medium'
+                        : 'text-gray-400 hover:text-blue-500'
+                    }`}
+                  >
+                    压缩对比
+                    {logs.filter((l) => l.status === 'success').length > 0 && (
+                      <span className="ml-1 bg-blue-100 text-blue-600 rounded-full px-1.5 py-0.5 text-[10px]">
+                        {logs.filter((l) => l.status === 'success').length}
+                      </span>
+                    )}
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-3">
-                {!running && logs.some((l) => l.status === 'error') && (
+                {activeTab === 'log' && !running && logs.some((l) => l.status === 'error') && (
                   <button
                     onClick={() =>
                       startCompress(
@@ -414,51 +441,57 @@ export default function TinyPNG() {
                 </span>
               </div>
             </div>
-            <ul ref={logRef} className="max-h-52 overflow-y-auto divide-y divide-gray-50">
-              {logs.map((item, i) => (
-                <li key={i} className="flex items-center gap-2 px-4 py-1.5">
-                  <span
-                    className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CLASS[item.status] || STATUS_CLASS.pending}`}
-                  >
-                    {item.status === 'success'
-                      ? '✓ 压缩'
-                      : item.status === 'skipped'
-                        ? '— 跳过'
-                        : '✗ 失败'}
-                  </span>
-                  <span
-                    className="flex-1 truncate text-xs text-gray-600 font-mono"
-                    title={item.file}
-                  >
-                    {basename(item.file)}
-                  </span>
-                  {item.status === 'success' && (
-                    <span className="text-xs text-green-600 shrink-0">
-                      {item.inputSize} → {item.outputSize}{' '}
-                      <span className="text-green-500">(-{item.saved})</span>
+            {activeTab === 'log' ? (
+              <ul ref={logRef} className="max-h-52 overflow-y-auto divide-y divide-gray-50">
+                {logs.map((item, i) => (
+                  <li key={i} className="flex items-center gap-2 px-4 py-1.5">
+                    <span
+                      className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CLASS[item.status] || STATUS_CLASS.pending}`}
+                    >
+                      {item.status === 'success'
+                        ? '✓ 压缩'
+                        : item.status === 'skipped'
+                          ? '— 跳过'
+                          : '✗ 失败'}
                     </span>
-                  )}
-                  {item.status === 'error' && (
-                    <>
-                      <span
-                        className="text-xs text-red-500 shrink-0 max-w-32 truncate"
-                        title={item.error}
-                      >
-                        {item.error}
+                    <span
+                      className="flex-1 truncate text-xs text-gray-600 font-mono"
+                      title={item.file}
+                    >
+                      {basename(item.file)}
+                    </span>
+                    {item.status === 'success' && (
+                      <span className="text-xs text-green-600 shrink-0">
+                        {item.inputSize} → {item.outputSize}{' '}
+                        <span className="text-green-500">(-{item.saved})</span>
                       </span>
-                      <button
-                        onClick={() => startCompress([item.file], { isRetry: true })}
-                        disabled={running}
-                        className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 disabled:opacity-30 transition-colors"
-                        title="重试"
-                      >
-                        ↺
-                      </button>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
+                    )}
+                    {item.status === 'error' && (
+                      <>
+                        <span
+                          className="text-xs text-red-500 shrink-0 max-w-32 truncate"
+                          title={item.error}
+                        >
+                          {item.error}
+                        </span>
+                        <button
+                          onClick={() => startCompress([item.file], { isRetry: true })}
+                          disabled={running}
+                          className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 disabled:opacity-30 transition-colors"
+                          title="重试"
+                        >
+                          ↺
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="max-h-[500px] overflow-y-auto p-4">
+                <ComparePanel logs={logs} />
+              </div>
+            )}
           </section>
         )}
 

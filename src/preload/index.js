@@ -74,7 +74,14 @@ const api = {
 
   // ── 通用清理 ──────────────────────────────────────────────────────────────
   /** 移除指定 IPC 频道的所有监听器 */
-  removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)
+  removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
+
+  // ── 文件备份还原 ───────────────────────────────────────────────────────
+  /** 将备份文件复制回原始路径（还原操作） */
+  restoreFile: (backupPath, originalPath) =>
+    ipcRenderer.invoke('file:restore', { backupPath, originalPath }),
+  /** 在系统文件管理器中显示文件所在位置 */
+  openInFinder: (filePath) => ipcRenderer.invoke('file:openInFinder', filePath)
 }
 
 if (process.contextIsolated) {

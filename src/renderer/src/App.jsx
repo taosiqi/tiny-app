@@ -58,11 +58,17 @@ function App() {
         <div className="px-5 py-4 border-t border-slate-700 text-xs text-slate-500">v1.0.0</div>
       </aside>
 
-      {/* Content */}
+      {/* Content：全部常驻，CSS 控制显隐，避免切换时销毁组件状态 */}
       <main className="flex-1 overflow-hidden">
-        {active === 'png' && <TinyPNG />}
-        {active === 'mp3' && <AudioTool key="mp3" format="mp3" />}
-        {active === 'ogg' && <AudioTool key="ogg" format="ogg" />}
+        <div className={active === 'png' ? 'h-full' : 'hidden'}>
+          <TinyPNG />
+        </div>
+        <div className={active === 'mp3' ? 'h-full' : 'hidden'}>
+          <AudioTool format="mp3" />
+        </div>
+        <div className={active === 'ogg' ? 'h-full' : 'hidden'}>
+          <AudioTool format="ogg" />
+        </div>
       </main>
     </div>
   )
