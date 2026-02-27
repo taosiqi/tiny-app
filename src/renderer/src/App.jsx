@@ -2,75 +2,105 @@
  * @file App.jsx
  * @description 应用根组件
  *
- * 维护当前激活的工具页签（active），通过侧边栏导航在
- * 图片压缩（TinyPNG）和音频压缩（AudioTool）之间切换。
+ * 使用 React Router（HashRouter）+ keepalive-for-react 实现
+ * 带 keep-alive 的路由切换，组件状态在页签间切换时不会丢失。
  */
-import { useState } from 'react'
+import { useMemo } from 'react'
+import {
+  HashRouter,
+  Routes,
+  Route,
+  NavLink,
+  Navigate,
+  useLocation,
+  useOutlet
+} from 'react-router-dom'
+import { KeepAlive } from 'keepalive-for-react'
 import TinyPNG from './components/TinyPNG'
 import AudioTool from './components/AudioTool'
 
-/** 侧边栏导航配置，每项对应一个工具页签 */
+/** 侧边栏导航配置，path 对应路由路径 */
 const TABS = [
-  { id: 'png', label: '图片压缩', icon: '', desc: 'PNG / JPG / JPEG' },
-  { id: 'mp3', label: 'MP3 压缩', icon: '', desc: '.mp3' },
-  { id: 'ogg', label: 'OGG 压缩', icon: '', desc: '.ogg' }
+  { path: '/png', label: '图片压缩', icon: '', desc: 'PNG / JPG / JPEG' },
+  { path: '/mp3', label: 'MP3 压缩', icon: '', desc: '.mp3' },
+  { path: '/ogg', label: 'OGG 压缩', icon: '', desc: '.ogg' }
 ]
+
+/**
+ * KeepAliveLayout
+ *
+ * 读取当前路由作为 activeCacheKey，将 outlet 组件包裹在 KeepAlive 中，
+ * 实现切换路由时组件状态保活。
+ */
+function KeepAliveLayout() {
+  const location = useLocation()
+  const outlet = useOutlet()
+
+  const currentCacheKey = useMemo(
+    () => location.pathname + location.search,
+    [location.pathname, location.search]
+  )
+
+  return (
+    <KeepAlive activeCacheKey={currentCacheKey} max={5}>
+      {outlet}
+    </KeepAlive>
+  )
+}
 
 /**
  * App 根组件
  *
- * 渲染两栏布局：左侧固定侧边栏（导航）+ 右侧内容区（工具组件）。
- * `active` 状态决定当前展示哪个工具；AudioTool 使用 `key` prop
- * 确保切换 mp3/ogg 时重置组件内部状态。
+ * 渲染两栏布局：左侧固定侧边栏（NavLink 导航）+ 右侧内容区（KeepAliveLayout）。
  */
 function App() {
-  const [active, setActive] = useState('png')
-
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-gray-50 text-gray-800 select-none">
-      {/* Sidebar */}
-      <aside className="w-52 flex flex-col bg-slate-900 text-slate-100 shrink-0">
-        <div className="px-5 py-5 border-b border-slate-700">
-          <h1 className="text-xl font-bold tracking-wide text-white">Tiny App</h1>
-        </div>
+    <HashRouter>
+      <div className="flex h-screen w-screen overflow-hidden bg-gray-50 text-gray-800 select-none">
+        {/* Sidebar */}
+        <aside className="w-52 flex flex-col bg-slate-900 text-slate-100 shrink-0">
+          <div className="px-5 py-5 border-b border-slate-700">
+            <h1 className="text-xl font-bold tracking-wide text-white">Tiny 资源压缩</h1>
+          </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActive(tab.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors duration-150
-                ${
-                  active === tab.id
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
-                }`}
-            >
-              <span className="text-lg leading-none">{tab.icon}</span>
-              <div>
-                <div className="text-sm font-medium leading-none mb-0.5">{tab.label}</div>
-                <div className="text-xs opacity-60">{tab.desc}</div>
-              </div>
-            </button>
-          ))}
-        </nav>
+          <nav className="flex-1 px-3 py-4 space-y-1">
+            {TABS.map((tab) => (
+              <NavLink
+                key={tab.path}
+                to={tab.path}
+                className={({ isActive }) =>
+                  `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors duration-150 ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                  }`
+                }
+              >
+                <span className="text-lg leading-none">{tab.icon}</span>
+                <div>
+                  <div className="text-sm font-medium leading-none mb-0.5">{tab.label}</div>
+                  <div className="text-xs opacity-60">{tab.desc}</div>
+                </div>
+              </NavLink>
+            ))}
+          </nav>
 
-        <div className="px-5 py-4 border-t border-slate-700 text-xs text-slate-500">v1.0.0</div>
-      </aside>
+          <div className="px-5 py-4 border-t border-slate-700 text-xs text-slate-500">v1.0.0</div>
+        </aside>
 
-      {/* Content：全部常驻，CSS 控制显隐，避免切换时销毁组件状态 */}
-      <main className="flex-1 overflow-hidden">
-        <div className={active === 'png' ? 'h-full' : 'hidden'}>
-          <TinyPNG />
-        </div>
-        <div className={active === 'mp3' ? 'h-full' : 'hidden'}>
-          <AudioTool format="mp3" />
-        </div>
-        <div className={active === 'ogg' ? 'h-full' : 'hidden'}>
-          <AudioTool format="ogg" />
-        </div>
-      </main>
-    </div>
+        {/* Content：KeepAlive 保活，切换路由不销毁组件状态 */}
+        <main className="flex-1 overflow-hidden">
+          <Routes>
+            <Route path="/" element={<Navigate to="/png" replace />} />
+            <Route element={<KeepAliveLayout />}>
+              <Route path="/png" element={<TinyPNG />} />
+              <Route path="/mp3" element={<AudioTool format="mp3" />} />
+              <Route path="/ogg" element={<AudioTool format="ogg" />} />
+            </Route>
+          </Routes>
+        </main>
+      </div>
+    </HashRouter>
   )
 }
 
