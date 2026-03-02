@@ -38,7 +38,7 @@ jobs:
           files: dist/*.dmg
 
   build-mac-x64:
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
