@@ -5,7 +5,7 @@
  * 使用 React Router（HashRouter）+ keepalive-for-react 实现
  * 带 keep-alive 的路由切换，组件状态在页签间切换时不会丢失。
  */
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   HashRouter,
   Routes,
@@ -54,6 +54,24 @@ function KeepAliveLayout() {
  * 渲染两栏布局：左侧固定侧边栏（NavLink 导航）+ 右侧内容区（KeepAliveLayout）。
  */
 function App() {
+  const [appVersion, setAppVersion] = useState('...')
+
+  useEffect(() => {
+    let active = true
+    window.api
+      .getAppVersion()
+      .then((version) => {
+        if (active && version) setAppVersion(version)
+      })
+      .catch(() => {
+        if (active) setAppVersion('unknown')
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
   return (
     <HashRouter>
       <div className="flex h-screen w-screen overflow-hidden bg-gray-50 text-gray-800 select-none">
@@ -85,7 +103,16 @@ function App() {
             ))}
           </nav>
 
-          <div className="px-5 py-4 border-t border-slate-700 text-xs text-slate-500">v1.0.0</div>
+          <div className="px-5 py-4 border-t border-slate-700 text-xs">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="tracking-wide">版本</span>
+              <span className="text-slate-200 font-medium tabular-nums">v{appVersion}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-slate-400">
+              <span className="tracking-wide">作者</span>
+              <span className="text-slate-300 font-medium select-text">Slack / taosiqi</span>
+            </div>
+          </div>
         </aside>
 
         {/* Content：KeepAlive 保活，切换路由不销毁组件状态 */}

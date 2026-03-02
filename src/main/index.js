@@ -40,10 +40,10 @@ const ffmpegBin = app.isPackaged
 function createWindow() {
   const mainWindow = new BrowserWindow({
     title: 'tiny',
-    width: 960,
-    height: 700,
-    minWidth: 760,
-    minHeight: 560,
+    width: 1280,
+    height: 860,
+    minWidth: 900,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),
@@ -90,6 +90,9 @@ app.whenReady().then(() => {
     return result.canceled ? null : result.filePaths[0]
   })
 
+  // ── IPC: app ────────────────────────────────────────────────────────────
+  ipcMain.handle('app:getVersion', () => app.getVersion())
+
   // ── IPC: TinyPNG ─────────────────────────────────────────────────────────
   ipcMain.handle('tinypng:checkKey', (_, apiKey) => checkTinypngKey(apiKey))
 
@@ -103,11 +106,11 @@ app.whenReady().then(() => {
 
   // 批量压缩图片：遍历 paths（可为文件或目录），逐张调用 TinyPNG API
   // 每处理一个文件发送 compress:image:progress 事件，全部完成后发送 compress:image:done
-  ipcMain.on('compress:image', async (event, { paths, apiKeys }) => {
+  ipcMain.on('compress:image', async (event, { paths, apiKeys, recursive = true }) => {
     const files = []
     for (const p of paths) {
       if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
-        collectFiles(p, ['.png', '.jpg', '.jpeg'], files)
+        collectFiles(p, ['.png', '.jpg', '.jpeg'], files, recursive)
       } else if (fs.existsSync(p)) {
         files.push(p)
       }
@@ -218,12 +221,12 @@ app.whenReady().then(() => {
   // ── IPC: Audio ───────────────────────────────────────────────────────────
   // 批量压缩音频：遍历 paths（可为文件或目录），逐个调用 ffmpeg
   // 每处理一个文件发送 compress:audio:progress 事件，全部完成后发送 compress:audio:done
-  ipcMain.on('compress:audio', async (event, { paths, format }) => {
+  ipcMain.on('compress:audio', async (event, { paths, format, recursive = true }) => {
     const ext = format === 'mp3' ? '.mp3' : '.ogg'
     const files = []
     for (const p of paths) {
       if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
-        collectFiles(p, [ext], files)
+        collectFiles(p, [ext], files, recursive)
       } else if (fs.existsSync(p)) {
         files.push(p)
       }

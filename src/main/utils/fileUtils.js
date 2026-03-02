@@ -6,18 +6,19 @@ import fs from 'fs'
 import path from 'path'
 
 /**
- * 递归收集目录下所有匹配扩展名的文件路径，自动跳过 _tiny_backup 目录
- * @param {string}   dir     起始目录
- * @param {string[]} exts    允许的小写扩展名，如 ['.png', '.jpg']
- * @param {string[]} results 结果数组，收集到的路径追加至此
+ * 收集目录下所有匹配扩展名的文件路径，自动跳过 _tiny_backup 目录
+ * @param {string}   dir       起始目录
+ * @param {string[]} exts      允许的小写扩展名，如 ['.png', '.jpg']
+ * @param {string[]} results   结果数组，收集到的路径追加至此
+ * @param {boolean}  [recursive=true] 是否递归子目录
  */
-export function collectFiles(dir, exts, results) {
+export function collectFiles(dir, exts, results, recursive = true) {
   const entries = fs.readdirSync(dir, { withFileTypes: true })
   for (const entry of entries) {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) {
       if (entry.name === '_tiny_backup') continue
-      collectFiles(full, exts, results)
+      if (recursive) collectFiles(full, exts, results, recursive)
     } else if (exts.includes(path.extname(entry.name).toLowerCase())) {
       results.push(full)
     }

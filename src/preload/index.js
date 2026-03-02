@@ -21,6 +21,8 @@ const api = {
   openFiles: (options) => ipcRenderer.invoke('dialog:openFiles', options),
   /** 打开目录选择对话框，返回所选目录路径（单个字符串）或 null */
   openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
+  /** 获取应用版本号（来自主进程 app.getVersion） */
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
 
   // ── 图片压缩（TinyPNG） ───────────────────────────────────────────────────
   /** 校验 TinyPNG API Key 有效性及当月剩余额度 */

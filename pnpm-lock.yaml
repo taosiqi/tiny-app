@@ -26,6 +26,9 @@ importers:
       keepalive-for-react-router:
         specifier: ^2.0.3
         version: 2.0.3(keepalive-for-react@5.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react-router@7.13.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
+      prop-types:
+        specifier: ^15.8.1
+        version: 15.8.1
       react-router-dom:
         specifier: ^7.13.1
         version: 7.13.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

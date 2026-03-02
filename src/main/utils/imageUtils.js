@@ -25,7 +25,7 @@ export async function compressImage(filePath, apiKey) {
   const uploadRes = await axios.post('https://api.tinify.com/shrink', fileData, {
     headers: { 'Content-Type': 'application/octet-stream' },
     auth: { username: 'api', password: apiKey },
-    timeout: 30000
+    timeout: 60000
   })
   const compressionCount = parseInt(uploadRes.headers['compression-count'] || '0', 10)
   const { input, output } = uploadRes.data
@@ -33,7 +33,7 @@ export async function compressImage(filePath, apiKey) {
     const dlRes = await axios.get(output.url, {
       responseType: 'arraybuffer',
       auth: { username: 'api', password: apiKey },
-      timeout: 30000
+      timeout: 60000
     })
     fs.writeFileSync(filePath, Buffer.from(dlRes.data))
     return {
@@ -48,7 +48,7 @@ export async function compressImage(filePath, apiKey) {
     success: false,
     inputSize: input.size,
     outputSize: output.size,
-    reason: 'already optimized',
+    reason: '压缩后无体积减小，已跳过',
     compressionCount
   }
 }
@@ -66,7 +66,7 @@ export async function checkTinypngKey(apiKey) {
     const res = await axios.post('https://api.tinify.com/shrink', TINY_PNG, {
       headers: { 'Content-Type': 'application/octet-stream' },
       auth: { username: 'api', password: apiKey },
-      timeout: 15000,
+      timeout: 30000,
       validateStatus: (s) => s === 200 || s === 201
     })
     const compressionCount = parseInt(res.headers['compression-count'] || '0', 10)

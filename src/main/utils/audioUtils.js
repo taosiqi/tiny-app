@@ -63,7 +63,7 @@ export function compressAudioFile(filePath, format, ffmpegBin) {
           success: false,
           inputSize: originalSize,
           outputSize: compressedSize,
-          reason: 'no size reduction'
+          reason: '压缩后无体积减小，已跳过'
         })
       }
     })
