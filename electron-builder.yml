@@ -1,5 +1,7 @@
 appId: com.taosiqi.tiny-app
 productName: tiny
+afterPack: scripts/removeLocales.cjs
+compression: maximum
 directories:
   buildResources: build
 files:

@@ -4,9 +4,23 @@ import react from '@vitejs/plugin-react'
 import UnoCSS from 'unocss/vite'
 
 export default defineConfig({
-  main: {},
-  preload: {},
+  main: {
+    build: {
+      sourcemap: false,
+      minify: true
+    }
+  },
+  preload: {
+    build: {
+      sourcemap: false,
+      minify: true
+    }
+  },
   renderer: {
+    build: {
+      sourcemap: false,
+      minify: true
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src')
