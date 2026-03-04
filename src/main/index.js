@@ -13,7 +13,6 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import fs from 'fs'
 import path from 'path'
-import ffmpegStaticPath from 'ffmpeg-static'
 import { collectFiles, formatSize, backupFile } from './utils/fileUtils.js'
 import { compressImage, checkTinypngKey } from './utils/imageUtils.js'
 import { compressAudioFile } from './utils/audioUtils.js'
@@ -27,10 +26,15 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
-// 开发模式使用 ffmpeg-static 包内的二进制；打包后使用随 extraResources 附带的系统二进制
+// 打包后使用随 extraResources 附带的二进制；开发模式直接读取工作区 node_modules 内 ffmpeg-static 二进制
 const ffmpegBin = app.isPackaged
   ? path.join(process.resourcesPath, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
-  : ffmpegStaticPath
+  : path.resolve(
+      process.cwd(),
+      'node_modules',
+      'ffmpeg-static',
+      process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+    )
 
 /**
  * 创建主窗口

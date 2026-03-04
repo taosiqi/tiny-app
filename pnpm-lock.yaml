@@ -17,9 +17,6 @@ importers:
       axios:
         specifier: ^1.13.5
         version: 1.13.5
-      ffmpeg-static:
-        specifier: ^5.3.0
-        version: 5.3.0
       keepalive-for-react:
         specifier: ^5.0.7
         version: 5.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -66,6 +63,9 @@ importers:
       eslint-plugin-react-refresh:
         specifier: ^0.4.24
         version: 0.4.26(eslint@9.39.3(jiti@2.6.1))
+      ffmpeg-static:
+        specifier: ^5.3.0
+        version: 5.3.0
       prettier:
         specifier: ^3.7.4
         version: 3.8.1
