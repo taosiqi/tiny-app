@@ -38,6 +38,12 @@ function pruneLprojDirs(resourcesDir, keepPrefixes) {
   }
 }
 
+function removeIfExists(filePath) {
+  if (fs.existsSync(filePath)) {
+    fs.rmSync(filePath, { force: true })
+  }
+}
+
 function getLocaleRoots(appOutDir) {
   const roots = [appOutDir]
 
@@ -95,5 +101,8 @@ exports.default = async function removeLocales(context) {
     for (const resourcesDir of lprojResourceDirs) {
       pruneLprojDirs(resourcesDir, keepPrefixes)
     }
+
+    removeIfExists(path.join(rootDir, 'LICENSES.chromium'))
+    removeIfExists(path.join(rootDir, 'resources', 'LICENSES.chromium'))
   }
 }
