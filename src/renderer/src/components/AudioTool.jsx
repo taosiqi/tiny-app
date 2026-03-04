@@ -33,6 +33,13 @@ const FORMAT_META = {
     desc: '使用 ffmpeg 将 OGG 压缩为 libvorbis 96kbps 44.1kHz',
     ext: '.ogg',
     filter: { name: 'OGG Audio', extensions: ['ogg'] }
+  },
+  wav: {
+    icon: '🔊',
+    label: 'WAV 压缩',
+    desc: '使用 ffmpeg 将 WAV 重编码为 pcm_s16le 单声道 22050Hz，体积可减少 75%+',
+    ext: '.wav',
+    filter: { name: 'WAV Audio', extensions: ['wav'] }
   }
 }
 
@@ -295,4 +302,4 @@ export default function AudioTool({ format }) {
   )
 }
 
-AudioTool.propTypes = { format: PropTypes.oneOf(['mp3', 'ogg']).isRequired }
+AudioTool.propTypes = { format: PropTypes.oneOf(['mp3', 'ogg', 'wav']).isRequired }

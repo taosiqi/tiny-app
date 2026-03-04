@@ -222,7 +222,8 @@ app.whenReady().then(() => {
   // 批量压缩音频：遍历 paths（可为文件或目录），逐个调用 ffmpeg
   // 每处理一个文件发送 compress:audio:progress 事件，全部完成后发送 compress:audio:done
   ipcMain.on('compress:audio', async (event, { paths, format, recursive = true }) => {
-    const ext = format === 'mp3' ? '.mp3' : '.ogg'
+    const extMap = { mp3: '.mp3', ogg: '.ogg', wav: '.wav' }
+    const ext = extMap[format] ?? '.mp3'
     const files = []
     for (const p of paths) {
       if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {

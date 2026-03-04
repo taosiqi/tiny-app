@@ -23,7 +23,8 @@ import AudioTool from './components/AudioTool'
 const TABS = [
   { path: '/png', label: '图片压缩', icon: '', desc: 'PNG / JPG / JPEG' },
   { path: '/mp3', label: 'MP3 压缩', icon: '', desc: '.mp3' },
-  { path: '/ogg', label: 'OGG 压缩', icon: '', desc: '.ogg' }
+  { path: '/ogg', label: 'OGG 压缩', icon: '', desc: '.ogg' },
+  { path: '/wav', label: 'WAV 压缩', icon: '', desc: '.wav' }
 ]
 
 /**
@@ -123,6 +124,7 @@ function App() {
               <Route path="/png" element={<TinyPNG />} />
               <Route path="/mp3" element={<AudioTool format="mp3" />} />
               <Route path="/ogg" element={<AudioTool format="ogg" />} />
+              <Route path="/wav" element={<AudioTool format="wav" />} />
             </Route>
           </Routes>
         </main>
