@@ -29,6 +29,8 @@ const api = {
   checkTinypngKey: (key) => ipcRenderer.invoke('tinypng:checkKey', key),
   /** 触发图片批量压缩（单向发送，结果通过事件回调） */
   compressImage: (payload) => ipcRenderer.send('compress:image', payload),
+  /** 停止图片压缩任务 */
+  compressImageStop: () => ipcRenderer.send('compress:image:stop'),
   /** 订阅"文件总数"事件，返回清理函数 */
   onImageTotal: (cb) => {
     ipcRenderer.on('compress:image:total', (_, v) => cb(v))

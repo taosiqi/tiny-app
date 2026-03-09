@@ -18,14 +18,16 @@ const TINY_PNG = Buffer.from(
  *
  * @param {string} filePath 图片本地绝对路径
  * @param {string} apiKey   TinyPNG API Key
+ * @param {AbortSignal} [signal] 取消信号
  * @returns {Promise<{success: boolean, inputSize: number, outputSize: number, savedBytes?: number, compressionCount: number, reason?: string}>}
  */
-export async function compressImage(filePath, apiKey) {
+export async function compressImage(filePath, apiKey, signal) {
   const fileData = fs.readFileSync(filePath)
   const uploadRes = await axios.post('https://api.tinify.com/shrink', fileData, {
     headers: { 'Content-Type': 'application/octet-stream' },
     auth: { username: 'api', password: apiKey },
-    timeout: 60000
+    timeout: 60000,
+    signal
   })
   const compressionCount = parseInt(uploadRes.headers['compression-count'] || '0', 10)
   const { input, output } = uploadRes.data
@@ -33,7 +35,8 @@ export async function compressImage(filePath, apiKey) {
     const dlRes = await axios.get(output.url, {
       responseType: 'arraybuffer',
       auth: { username: 'api', password: apiKey },
-      timeout: 60000
+      timeout: 60000,
+      signal
     })
     fs.writeFileSync(filePath, Buffer.from(dlRes.data))
     return {

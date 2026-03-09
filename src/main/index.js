@@ -108,9 +108,24 @@ app.whenReady().then(() => {
     shell.showItemInFolder(filePath)
   })
 
+  // 停止控制器映射：sender.id -> AbortController
+  const abortControllers = new Map()
+
+  // 停止压缩任务
+  ipcMain.on('compress:image:stop', (event) => {
+    const controller = abortControllers.get(event.sender.id)
+    if (controller) {
+      controller.abort()
+    }
+  })
+
   // 批量压缩图片：遍历 paths（可为文件或目录），逐张调用 TinyPNG API
   // 每处理一个文件发送 compress:image:progress 事件，全部完成后发送 compress:image:done
   ipcMain.on('compress:image', async (event, { paths, apiKeys, recursive = true }) => {
+    const senderId = event.sender.id
+    const controller = new AbortController()
+    abortControllers.set(senderId, controller)
+
     const files = []
     for (const p of paths) {
       if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
@@ -136,11 +151,20 @@ app.whenReady().then(() => {
     let allKeysExhausted = false
 
     for (let fi = 0; fi < files.length; fi++) {
+      // 检查是否收到停止信号
+      if (controller.signal.aborted) {
+        event.sender.send('compress:image:paused', { remaining: files.slice(fi) })
+        abortControllers.delete(senderId)
+        return
+      }
+
       const file = files[fi]
       let backupPath = null
       try {
         backupPath = backupFile(file)
-      } catch (_e) {}
+      } catch (_e) {
+        void _e
+      }
       let key = pickKey()
 
       // 循环开始时所有 key 已耗尽 → 暂停，告知剩余文件
@@ -153,7 +177,7 @@ app.whenReady().then(() => {
       let done = false
       while (!done && key) {
         try {
-          const result = await compressImage(file, key)
+          const result = await compressImage(file, key, controller.signal)
           event.sender.send('compress:image:keycount', {
             key,
             compressionCount: result.compressionCount
@@ -186,6 +210,13 @@ app.whenReady().then(() => {
           }
           done = true
         } catch (e) {
+          // 若因用户暂停而中断，终止任务并保存剩余列表
+          if (controller.signal.aborted || e.code === 'ERR_CANCELED') {
+            event.sender.send('compress:image:paused', { remaining: files.slice(fi) })
+            abortControllers.delete(senderId)
+            return
+          }
+
           if (e.response?.status === 429) {
             // 当前 key 已达上限，加入黑名单后换一个 key 重试
             exhaustedKeys.add(key)
@@ -213,6 +244,8 @@ app.whenReady().then(() => {
       }
       if (allKeysExhausted) break
     }
+
+    abortControllers.delete(senderId)
     // 全部处理完毕才发送 done；key 耗尽暂停时不发送 done
     if (!allKeysExhausted) {
       event.sender.send('compress:image:done', {
@@ -243,7 +276,9 @@ app.whenReady().then(() => {
       let backupPath = null
       try {
         backupPath = backupFile(file)
-      } catch (_e) {}
+      } catch (_e) {
+        void _e
+      }
       try {
         const result = await compressAudioFile(file, format, ffmpegBin)
         if (result.success) {

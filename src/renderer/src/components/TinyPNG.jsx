@@ -423,9 +423,20 @@ export default function TinyPNG() {
           <>
             {/* 暂停提示 */}
             <section className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-sm text-orange-800 shrink-0">
-              ⚠️ 所有 API Key 已达当月上限，还有{' '}
-              <span className="font-bold">{paused.remaining.length}</span> 张图片未处理。
-              请在上方添加新 Key 后点击继续。
+              {keys
+                .filter((k) => k.status === 'valid')
+                .every((k) => k.compressionCount >= KEY_LIMIT) ? (
+                <>
+                  ⚠️ 所有 API Key 已达当月上限，还有{' '}
+                  <span className="font-bold">{paused.remaining.length}</span> 张图片未处理。
+                  请在上方添加新 Key 后点击继续。
+                </>
+              ) : (
+                <>
+                  ⏸ 任务已暂停，还有 <span className="font-bold">{paused.remaining.length}</span>{' '}
+                  张图片未处理。
+                </>
+              )}
             </section>
             <div className="flex gap-3 shrink-0">
               <button
@@ -442,18 +453,20 @@ export default function TinyPNG() {
               </button>
             </div>
           </>
+        ) : running ? (
+          <button
+            onClick={() => window.api.compressImageStop()}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors shrink-0 bg-yellow-500 text-white hover:bg-yellow-600"
+          >
+            ⏸ 暂停 ({logs.length}/{total})
+          </button>
         ) : (
           <button
             onClick={() => startCompress()}
             disabled={running}
-            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors shrink-0
-              ${
-                running
-                  ? 'bg-blue-300 text-white cursor-not-allowed'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors shrink-0 bg-blue-600 text-white hover:bg-blue-700"
           >
-            {running ? `⏳ 压缩中… (${logs.length}/${total})` : '🚀 开始压缩'}
+            🚀 开始压缩
           </button>
         )}
 
