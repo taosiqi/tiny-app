@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { setTheme } from '@tauri-apps/api/app'
 import { open } from '@tauri-apps/plugin-dialog'
 
 function subscribe(channel, cb) {
@@ -37,6 +38,12 @@ export async function openDirectory() {
 
 export const openExternal = (url) => invoke('open_external', { url })
 export const getAppVersion = () => invoke('get_app_version')
+export const getAppSettings = () => invoke('get_app_settings')
+export const updateAppSettings = (settings) => invoke('update_app_settings', { settings })
+export const updateNativeTheme = (theme) => setTheme(theme)
+export const syncWindowTheme = (mode) => invoke('sync_window_theme', { mode })
+export const getTinypngKeys = () => invoke('get_tinypng_keys')
+export const updateTinypngKeys = (keys) => invoke('update_tinypng_keys', { keys })
 export const checkTinypngKey = (apiKey) => invoke('check_tinypng_key', { apiKey })
 export const compressImage = (payload) => runCommand('compress_image', { payload })
 export const stopImageCompression = () => invoke('stop_image_compression')
@@ -53,3 +60,4 @@ export const onImagePaused = (cb) => subscribe('compress:image:paused', cb)
 export const onAudioTotal = (cb) => subscribe('compress:audio:total', cb)
 export const onAudioProgress = (cb) => subscribe('compress:audio:progress', cb)
 export const onAudioDone = (cb) => subscribe('compress:audio:done', cb)
+export const onOpenSettings = (cb) => subscribe('app:navigate-settings', cb)

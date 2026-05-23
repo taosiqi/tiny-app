@@ -6,13 +6,27 @@
  *  - 管理多个 TinyPNG API Key（支持增删与有效性验证）
  *  - 通过 IPC 调用主进程批量压缩 PNG/JPG/JPEG 图片
  *  - 实时展示每张图片的处理状态与压缩统计
- *  - API Key 列表持久化至 localStorage
+ *  - API Key 列表持久化至 Rust 端设置文件
  */
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import PropTypes from 'prop-types'
 import ComparePanel from './ComparePanel'
-import { checkTinypngKey, compressImage, onImageDone, onImageKeyCount, onImagePaused, onImageProgress, onImageTotal, openDirectory, openExternal, openFiles, stopImageCompression } from '../api/desktop'
+import {
+  checkTinypngKey,
+  compressImage,
+  getTinypngKeys,
+  onImageDone,
+  onImageKeyCount,
+  onImagePaused,
+  onImageProgress,
+  onImageTotal,
+  openDirectory,
+  openExternal,
+  openFiles,
+  stopImageCompression,
+  updateTinypngKeys
+} from '../api/desktop'
 import { basename } from '../utils/fileUtils'
 
 /**
@@ -41,7 +55,7 @@ function Tooltip({ text }) {
         ref={triggerRef}
         onMouseEnter={show}
         onMouseLeave={() => setVisible(false)}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-stone-100 text-stone-400 text-[10px] font-bold cursor-default hover:bg-lime-200 hover:text-emerald-700 transition-colors"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-stone-100 text-stone-400 text-[10px] font-bold cursor-default hover:bg-sky-200 hover:text-emerald-700 transition-colors"
       >
         i
       </span>
@@ -62,18 +76,18 @@ function Tooltip({ text }) {
   )
 }
 
-/** localStorage 中存储 API Key 列表的键名 */
+/** 旧版本 localStorage 键名，仅用于一次性迁移。 */
 const STORAGE_KEY = 'tinypng_keys'
 
 /**
- * 从 localStorage 加载已保存的 API Key 列表
+ * 从旧 localStorage 加载已保存的 API Key 列表
  *
  * 恢复时将运行时状态（status / error）重置为初始值，
  * 避免上次会话的校验结果影响当前会话的 UI 展示。
  *
  * @returns {Array|null} Key 对象数组，若无合法数据则返回 null
  */
-function loadStoredKeys() {
+function loadLegacyStoredKeys() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
@@ -105,9 +119,8 @@ const KEY_LIMIT = 500
  * @component
  */
 export default function TinyPNG() {
-  const [keys, setKeys] = useState(
-    () => loadStoredKeys() ?? [{ value: '', status: 'idle', compressionCount: null, error: null }]
-  )
+  const [keys, setKeys] = useState([{ value: '', status: 'idle', compressionCount: null, error: null }])
+  const [keysReady, setKeysReady] = useState(false)
   const [paths, setPaths] = useState([])
   const [logs, setLogs] = useState([])
   const [stats, setStats] = useState(null)
@@ -126,11 +139,45 @@ export default function TinyPNG() {
     }, 50)
   }, [])
 
-  // keys 变化时持久化（只存 value 和 compressionCount，运行时状态不持久化）
   useEffect(() => {
+    let active = true
+
+    const loadKeys = async () => {
+      try {
+        const stored = await getTinypngKeys()
+        const legacy = loadLegacyStoredKeys()
+        const next = stored?.length ? stored : legacy
+
+        if (active && next?.length) {
+          setKeys(next.map((k) => ({ ...k, status: 'idle', error: null })))
+        }
+
+        if (!stored?.length && legacy?.length) {
+          await updateTinypngKeys(legacy.map(({ value, compressionCount }) => ({ value, compressionCount })))
+          localStorage.removeItem(STORAGE_KEY)
+        }
+      } catch (error) {
+        console.error('[tinypng] failed to load stored keys', error)
+      } finally {
+        if (active) setKeysReady(true)
+      }
+    }
+
+    loadKeys()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  // keys 变化时持久化到 Rust 设置（只存 value 和 compressionCount，运行时状态不持久化）
+  useEffect(() => {
+    if (!keysReady) return
     const toStore = keys.map(({ value, compressionCount }) => ({ value, compressionCount }))
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore))
-  }, [keys])
+    updateTinypngKeys(toStore).catch((error) => {
+      console.error('[tinypng] failed to persist keys', error)
+    })
+  }, [keys, keysReady])
 
   /** 更新指定索引的 Key 对象（局部合并更新） */
   const updateKey = (i, patch) =>
@@ -306,7 +353,7 @@ export default function TinyPNG() {
                       ? 'border-green-300 focus:border-green-400'
                       : k.status === 'invalid'
                         ? 'border-red-300 focus:border-red-400'
-                        : 'border-stone-200 focus:border-lime-400'
+                        : 'border-stone-200 focus:border-[var(--theme-accent)]'
                   }`}
                 />
 
@@ -336,7 +383,7 @@ export default function TinyPNG() {
                 <button
                   onClick={() => checkKey(i)}
                   disabled={!k.value.trim() || k.status === 'checking' || running}
-                  className="shrink-0 text-xs px-2.5 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-40 transition-colors"
+                  className="shrink-0 text-xs px-2.5 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-40 transition-colors"
                 >
                   {k.status === 'checking' ? '…' : '验证'}
                 </button>
@@ -362,14 +409,14 @@ export default function TinyPNG() {
               <button
                 onClick={addFiles}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-50 transition-colors"
               >
                 + 添加文件
               </button>
               <button
                 onClick={addDirectory}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-50 transition-colors"
               >
                 + 添加目录
               </button>
@@ -405,7 +452,7 @@ export default function TinyPNG() {
               checked={recursive}
               onChange={(e) => setRecursive(e.target.checked)}
               disabled={running}
-              className="w-3.5 h-3.5 accent-lime-500 disabled:opacity-50"
+              className="w-3.5 h-3.5 accent-[var(--theme-accent)] disabled:opacity-50"
             />
             <span className="text-xs text-stone-500">递归子目录</span>
           </label>
@@ -434,7 +481,7 @@ export default function TinyPNG() {
             <div className="flex gap-3 shrink-0">
               <button
                 onClick={() => startCompress(paused.remaining)}
-                className="flex-1 py-2.5 rounded-2xl text-sm font-semibold bg-stone-950 text-white hover:bg-stone-800 transition-colors"
+                className="flex-1 py-2.5 rounded-2xl text-sm font-semibold bg-sky-100 text-stone-950 hover:bg-sky-200 transition-colors"
               >
                 ▶ 继续压缩（{paused.remaining.length} 张）
               </button>
@@ -457,7 +504,7 @@ export default function TinyPNG() {
           <button
             onClick={() => startCompress()}
             disabled={running}
-            className="w-full py-2.5 rounded-2xl text-sm font-semibold transition-colors shrink-0 bg-stone-950 text-white hover:bg-stone-800"
+            className="w-full py-2.5 rounded-2xl text-sm font-semibold transition-colors shrink-0 bg-sky-100 text-stone-950 hover:bg-sky-200"
           >
             🚀 开始压缩
           </button>
@@ -494,7 +541,7 @@ export default function TinyPNG() {
                   onClick={() => setActiveTab('log')}
                   className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                     activeTab === 'log'
-                      ? 'bg-stone-100 text-stone-700 font-medium'
+                      ? 'tab-active font-medium'
                       : 'text-stone-400 hover:text-stone-600'
                   }`}
                 >
@@ -505,13 +552,13 @@ export default function TinyPNG() {
                     onClick={() => setActiveTab('compare')}
                     className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                       activeTab === 'compare'
-                        ? 'bg-lime-100 text-stone-950 font-medium'
+                        ? 'tab-active font-medium'
                         : 'text-stone-400 hover:text-emerald-700'
                     }`}
                   >
                     压缩对比
                     {logs.filter((l) => l.status === 'success').length > 0 && (
-                      <span className="ml-1 bg-lime-100 text-stone-950 rounded-full px-1.5 py-0.5 text-[10px]">
+                      <span className="ml-1 bg-sky-100 text-stone-950 rounded-full px-1.5 py-0.5 text-[10px]">
                         {logs.filter((l) => l.status === 'success').length}
                       </span>
                     )}

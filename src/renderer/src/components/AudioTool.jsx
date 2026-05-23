@@ -117,14 +117,14 @@ export default function AudioTool({ format }) {
               <button
                 onClick={addFiles}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-50 transition-colors"
               >
                 + 添加文件
               </button>
               <button
                 onClick={addDirectory}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-50 transition-colors"
               >
                 + 添加目录
               </button>
@@ -160,7 +160,7 @@ export default function AudioTool({ format }) {
               checked={recursive}
               onChange={(e) => setRecursive(e.target.checked)}
               disabled={running}
-              className="w-3.5 h-3.5 accent-lime-500 disabled:opacity-50"
+              className="w-3.5 h-3.5 accent-[var(--theme-accent)] disabled:opacity-50"
             />
             <span className="text-xs text-stone-500">递归子目录</span>
           </label>
@@ -174,7 +174,7 @@ export default function AudioTool({ format }) {
             ${
               running
                 ? 'bg-stone-300 text-white cursor-not-allowed'
-                : 'bg-stone-950 text-white hover:bg-stone-800'
+                : 'bg-sky-100 text-stone-950 hover:bg-sky-200'
             }`}
         >
           {running ? `⏳ 压缩中… (${logs.length}/${total})` : '🚀 开始压缩'}
@@ -211,7 +211,7 @@ export default function AudioTool({ format }) {
                   onClick={() => setActiveTab('log')}
                   className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                     activeTab === 'log'
-                      ? 'bg-stone-100 text-stone-700 font-medium'
+                      ? 'tab-active font-medium'
                       : 'text-stone-400 hover:text-stone-600'
                   }`}
                 >
@@ -222,13 +222,13 @@ export default function AudioTool({ format }) {
                     onClick={() => setActiveTab('compare')}
                     className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                       activeTab === 'compare'
-                        ? 'bg-lime-100 text-stone-950 font-medium'
+                        ? 'tab-active font-medium'
                         : 'text-stone-400 hover:text-emerald-700'
                     }`}
                   >
                     压缩对比
                     {logs.filter((l) => l.status === 'success').length > 0 && (
-                      <span className="ml-1 bg-lime-100 text-stone-950 rounded-full px-1.5 py-0.5 text-[10px]">
+                      <span className="ml-1 bg-sky-100 text-stone-950 rounded-full px-1.5 py-0.5 text-[10px]">
                         {logs.filter((l) => l.status === 'success').length}
                       </span>
                     )}

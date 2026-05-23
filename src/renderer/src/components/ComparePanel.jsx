@@ -55,7 +55,7 @@ function SizeBar({ inputBytes, outputBytes }) {
     <div className="flex items-center gap-2 mt-2">
       <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
         <div
-          className="h-full bg-lime-400 rounded-full transition-all"
+          className="h-full bg-sky-400 rounded-full transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -151,7 +151,7 @@ function ImageCompareModal({ item, onClose }) {
           </div>
 
           {/* 压缩后 */}
-          <div className="flex-1 flex flex-col items-center bg-lime-100 px-6 py-5 min-w-0 overflow-hidden">
+          <div className="flex-1 flex flex-col items-center bg-sky-100 px-6 py-5 min-w-0 overflow-hidden">
             <div className="text-xs font-medium text-emerald-700 mb-3">压缩后</div>
             <div
               className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden"
@@ -317,7 +317,7 @@ export default function ComparePanel({ logs }) {
 
                   <div className="flex-1 min-w-0">
                     <div className="text-[10px] text-emerald-700 mb-1 text-center">压缩后</div>
-                    <div className="h-32 rounded-2xl bg-white border border-lime-200 overflow-hidden flex items-center justify-center group-hover:border-lime-300 transition-colors">
+                    <div className="h-32 rounded-2xl bg-white border border-sky-200 overflow-hidden flex items-center justify-center group-hover:border-sky-300 transition-colors">
                       <LocalImage
                         filePath={item.file}
                         className="max-h-full max-w-full object-contain"
@@ -348,7 +348,7 @@ export default function ComparePanel({ logs }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[10px] text-emerald-700 mb-1 text-center">压缩后</div>
-                    <div className="rounded-2xl bg-white border border-lime-200 px-2 py-1.5">
+                    <div className="rounded-2xl bg-white border border-sky-200 px-2 py-1.5">
                       <LocalAudio filePath={item.file} />
                     </div>
                     <div className="text-[10px] text-stone-950 mt-1 text-center tabular-nums">

@@ -3,18 +3,63 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
 };
 use tauri::{
     image::Image,
     menu::{AboutMetadata, AboutMetadataBuilder, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    window::Color,
     AppHandle, Emitter, Manager, State, WindowEvent,
 };
 
 #[derive(Default)]
 struct TaskState {
     stop_image: AtomicBool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppSettings {
+    #[serde(default = "default_night_mode")]
+    night_mode: String,
+    #[serde(default = "default_close_behavior")]
+    close_behavior: String,
+    #[serde(default)]
+    tinypng_keys: Vec<StoredTinypngKey>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredTinypngKey {
+    value: String,
+    compression_count: Option<u32>,
+}
+
+fn default_night_mode() -> String {
+    "system".into()
+}
+
+fn default_close_behavior() -> String {
+    "background".into()
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            night_mode: default_night_mode(),
+            close_behavior: default_close_behavior(),
+            tinypng_keys: Vec::new(),
+        }
+    }
+}
+
+struct SettingsState {
+    config_path: PathBuf,
+    value: Mutex<AppSettings>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +161,62 @@ type AppResult<T> = Result<T, String>;
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+fn get_app_settings(state: State<'_, SettingsState>) -> AppResult<AppSettings> {
+    state
+        .value
+        .lock()
+        .map(|settings| settings.clone())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_app_settings(
+    state: State<'_, SettingsState>,
+    settings: AppSettings,
+) -> AppResult<AppSettings> {
+    let mut normalized = normalize_settings(settings);
+    let mut current = state.value.lock().map_err(|e| e.to_string())?;
+    normalized.tinypng_keys = current.tinypng_keys.clone();
+    persist_settings(&state.config_path, &normalized)?;
+    *current = normalized.clone();
+    Ok(normalized)
+}
+
+#[tauri::command]
+fn get_tinypng_keys(state: State<'_, SettingsState>) -> AppResult<Vec<StoredTinypngKey>> {
+    state
+        .value
+        .lock()
+        .map(|settings| settings.tinypng_keys.clone())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_tinypng_keys(
+    state: State<'_, SettingsState>,
+    keys: Vec<StoredTinypngKey>,
+) -> AppResult<Vec<StoredTinypngKey>> {
+    let mut current = state.value.lock().map_err(|e| e.to_string())?;
+    current.tinypng_keys = normalize_tinypng_keys(keys);
+    persist_settings(&state.config_path, &current)?;
+    Ok(current.tinypng_keys.clone())
+}
+
+#[tauri::command]
+fn sync_window_theme(app: AppHandle, mode: String) -> AppResult<()> {
+    let color = match mode.as_str() {
+        "dark" => Color(17, 17, 17, 255),
+        _ => Color(251, 251, 251, 255),
+    };
+
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_background_color(Some(color)).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -432,6 +533,11 @@ fn open_external(url: String) -> AppResult<()> {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let settings = load_settings(app.handle());
+            app.manage(SettingsState {
+                config_path: settings.0,
+                value: Mutex::new(settings.1),
+            });
             create_status_bar(app.handle())?;
             Ok(())
         })
@@ -440,6 +546,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            get_app_settings,
+            update_app_settings,
+            get_tinypng_keys,
+            update_tinypng_keys,
+            sync_window_theme,
             check_tinypng_key,
             compress_image,
             stop_image_compression,
@@ -461,10 +572,20 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
+                    if should_hide_instead_of_quit(window.app_handle()) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
             }
+        })
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "settings" => {
+                show_main_window(app);
+                let _ = app.emit("app:navigate-settings", ());
+            }
+            "app_quit" => quit_from_setting(app),
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -530,7 +651,7 @@ impl ProgressItem {
 fn create_status_bar(app: &AppHandle) -> tauri::Result<()> {
     let open_item = MenuItem::with_id(app, "open", "打开 TinyPress", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, "quit", "完全退出", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open_item, &separator, &quit_item])?;
     let icon = Image::from_bytes(include_bytes!("../icons/tray-icon.png")).ok();
 
@@ -556,6 +677,8 @@ fn create_status_bar(app: &AppHandle) -> tauri::Result<()> {
 
 fn create_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(app, Some("关于 TinyPress"), Some(about_metadata(app)))?;
+    let settings = MenuItem::with_id(app, "settings", "设置...", true, None::<&str>)?;
+    let app_quit = MenuItem::with_id(app, "app_quit", "退出", true, None::<&str>)?;
 
     let app_menu = Submenu::with_items(
         app,
@@ -564,12 +687,14 @@ fn create_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &about,
             &PredefinedMenuItem::separator(app)?,
+            &settings,
+            &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, Some("完全退出"))?,
+            &app_quit,
         ],
     )?;
     let file_menu = Submenu::with_items(
@@ -629,12 +754,78 @@ fn about_metadata(app: &AppHandle) -> AboutMetadata<'_> {
         .name(Some("TinyPress"))
         .version(Some(env!("CARGO_PKG_VERSION")))
         .authors(Some(vec!["taosiqi".into()]))
-        .comments(Some("图片与音频压缩工作台"))
         .copyright(Some("Copyright 2026 taosiqi"))
         .website(Some("https://github.com/taosiqi/tiny-app"))
         .website_label(Some("GitHub"))
         .icon(app.default_window_icon().cloned())
         .build()
+}
+
+fn load_settings(app: &AppHandle) -> (PathBuf, AppSettings) {
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("TinyPress"));
+    let config_path = config_dir.join("settings.json");
+    let settings = fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<AppSettings>(&raw).ok())
+        .map(normalize_settings)
+        .unwrap_or_default();
+
+    (config_path, settings)
+}
+
+fn normalize_settings(settings: AppSettings) -> AppSettings {
+    let night_mode = match settings.night_mode.as_str() {
+        "system" | "dark" | "light" => settings.night_mode,
+        _ => AppSettings::default().night_mode,
+    };
+    let close_behavior = match settings.close_behavior.as_str() {
+        "background" | "quit" => settings.close_behavior,
+        _ => AppSettings::default().close_behavior,
+    };
+
+    AppSettings {
+        night_mode,
+        close_behavior,
+        tinypng_keys: normalize_tinypng_keys(settings.tinypng_keys),
+    }
+}
+
+fn normalize_tinypng_keys(keys: Vec<StoredTinypngKey>) -> Vec<StoredTinypngKey> {
+    keys.into_iter()
+        .map(|key| StoredTinypngKey {
+            value: key.value,
+            compression_count: key.compression_count,
+        })
+        .collect()
+}
+
+fn persist_settings(path: &Path, settings: &AppSettings) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    fs::write(path, json).map_err(|e| e.to_string())
+}
+
+fn should_hide_instead_of_quit(app: &AppHandle) -> bool {
+    app.state::<SettingsState>()
+        .value
+        .lock()
+        .map(|settings| settings.close_behavior == "background")
+        .unwrap_or(true)
+}
+
+fn quit_from_setting(app: &AppHandle) {
+    if should_hide_instead_of_quit(app) {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+    } else {
+        app.exit(0);
+    }
 }
 
 fn show_main_window(app: &AppHandle) {
