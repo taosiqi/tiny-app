@@ -1,12 +1,13 @@
-import eslint from '@electron-toolkit/eslint-config'
-import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
+import js from '@eslint/js'
+import globals from 'globals'
+import eslintConfigPrettier from 'eslint-config-prettier'
 import eslintPluginReact from 'eslint-plugin-react'
 import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['**/node_modules', '**/dist', '**/out'] },
-  eslint,
+  { ignores: ['**/node_modules', '**/dist', '**/out', '**/target', 'src-tauri/gen/**'] },
+  js.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
   {
@@ -17,7 +18,14 @@ export default [
     }
   },
   {
-    files: ['**/*.{js,jsx}'],
+    files: ['src/renderer/src/**/*.{js,jsx}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.browser
+      }
+    },
     plugins: {
       'react-hooks': eslintPluginReactHooks,
       'react-refresh': eslintPluginReactRefresh

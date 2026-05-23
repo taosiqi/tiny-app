@@ -9,12 +9,14 @@
 import { useState, useCallback, useEffect } from 'react'
 import PropTypes from 'prop-types'
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { basename, isImage } from '../utils/fileUtils'
+import { openInFinder, restoreFile } from '../api/desktop'
 
-/** 将本地绝对路径转为 local:// URL（兼容 Mac/Windows） */
+/** 将本地绝对路径转为 Tauri asset URL（兼容 Mac/Windows） */
 function toLocalURL(filePath) {
   if (!filePath) return ''
-  return 'local://' + filePath.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')
+  return convertFileSrc(filePath)
 }
 
 /** 本地图片展示 */
@@ -28,7 +30,7 @@ LocalImage.propTypes = {
   alt: PropTypes.string
 }
 
-/** 本地音频播放器：local:// 流式协议，支持 seek */
+/** 本地音频播放器：Tauri asset 协议，支持 seek */
 function LocalAudio({ filePath }) {
   if (!filePath) return null
   return (
@@ -51,13 +53,13 @@ function SizeBar({ inputBytes, outputBytes }) {
   const saved = (((inputBytes - outputBytes) / inputBytes) * 100).toFixed(1)
   return (
     <div className="flex items-center gap-2 mt-2">
-      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+      <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
         <div
-          className="h-full bg-blue-400 rounded-full transition-all"
+          className="h-full bg-lime-400 rounded-full transition-all"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs font-semibold text-green-600 w-12 text-right shrink-0 tabular-nums">
+      <span className="text-xs font-semibold text-emerald-600 w-12 text-right shrink-0 tabular-nums">
         -{saved}%
       </span>
     </div>
@@ -100,16 +102,16 @@ function ImageCompareModal({ item, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* 标题栏 */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100">
           <span
-            className="text-sm font-semibold text-gray-700 font-mono truncate max-w-xs"
+            className="text-sm font-semibold text-stone-700 font-mono truncate max-w-xs"
             title={item.file}
           >
             🖼 {basename(item.file)}
           </span>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-xl leading-none ml-4 transition-colors"
+            className="text-stone-400 hover:text-stone-700 text-xl leading-none ml-4 transition-colors"
             title="关闭"
           >
             ×
@@ -119,8 +121,8 @@ function ImageCompareModal({ item, onClose }) {
         {/* 图片对比区域 */}
         <div className="flex gap-0 flex-1 min-h-0 overflow-hidden rounded-b-2xl">
           {/* 原始 */}
-          <div className="flex-1 flex flex-col items-center bg-gray-50 px-6 py-5 min-w-0 overflow-hidden">
-            <div className="text-xs font-medium text-gray-500 mb-3">原始备份</div>
+          <div className="flex-1 flex flex-col items-center bg-stone-50 px-6 py-5 min-w-0 overflow-hidden">
+            <div className="text-xs font-medium text-stone-500 mb-3">原始备份</div>
             <div
               className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden"
               style={{ maxHeight: 'calc(90vh - 160px)' }}
@@ -138,19 +140,19 @@ function ImageCompareModal({ item, onClose }) {
                 </TransformComponent>
               </TransformWrapper>
             </div>
-            <div className="text-xs text-gray-500 mt-3 tabular-nums font-medium">
+            <div className="text-xs text-stone-500 mt-3 tabular-nums font-medium">
               {item.inputSize}
             </div>
           </div>
 
           {/* 分隔线 + 箭头 */}
           <div className="flex flex-col items-center justify-center px-3 bg-white shrink-0 z-10 relative">
-            <div className="text-gray-300 text-2xl select-none">→</div>
+            <div className="text-stone-300 text-2xl select-none">→</div>
           </div>
 
           {/* 压缩后 */}
-          <div className="flex-1 flex flex-col items-center bg-blue-50 px-6 py-5 min-w-0 overflow-hidden">
-            <div className="text-xs font-medium text-blue-500 mb-3">压缩后</div>
+          <div className="flex-1 flex flex-col items-center bg-lime-100 px-6 py-5 min-w-0 overflow-hidden">
+            <div className="text-xs font-medium text-emerald-700 mb-3">压缩后</div>
             <div
               className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden"
               style={{ maxHeight: 'calc(90vh - 160px)' }}
@@ -169,11 +171,11 @@ function ImageCompareModal({ item, onClose }) {
               </TransformWrapper>
             </div>
             <div className="flex items-center gap-2 mt-3">
-              <span className="text-xs text-blue-600 tabular-nums font-medium">
+              <span className="text-xs text-stone-950 tabular-nums font-medium">
                 {item.outputSize}
               </span>
               {item.saved && (
-                <span className="text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">
+                <span className="text-xs bg-green-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
                   节省 {item.saved}
                 </span>
               )}
@@ -218,7 +220,7 @@ export default function ComparePanel({ logs }) {
       if (loadingSet.has(item.file)) return
       setLoadingSet((s) => new Set([...s, item.file]))
       try {
-        await window.api.restoreFile(item.backupPath, item.file)
+        await restoreFile(item.backupPath, item.file)
         setRestoredSet((s) => new Set([...s, item.file]))
       } catch (e) {
         alert('还原失败：' + e.message)
@@ -234,11 +236,11 @@ export default function ComparePanel({ logs }) {
   )
 
   const openDir = useCallback((item) => {
-    window.api.openInFinder(item.backupPath)
+    openInFinder(item.backupPath)
   }, [])
 
   if (successItems.length === 0) {
-    return <div className="text-center py-10 text-gray-400 text-sm">没有可对比的文件</div>
+    return <div className="text-center py-10 text-stone-400 text-sm">没有可对比的文件</div>
   }
 
   return (
@@ -251,12 +253,12 @@ export default function ComparePanel({ logs }) {
           const isLoading = loadingSet.has(item.file)
 
           return (
-            <div key={i} className="border border-gray-100 rounded-xl p-4 bg-gray-50">
+            <div key={i} className="border border-stone-100 rounded-2xl p-4 bg-stone-50">
               {/* 文件名行 */}
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-sm shrink-0">{img ? '🖼' : '🎵'}</span>
                 <span
-                  className="flex-1 truncate text-xs text-gray-700 font-mono font-medium"
+                  className="flex-1 truncate text-xs text-stone-700 font-mono font-medium"
                   title={item.file}
                 >
                   {basename(item.file)}
@@ -264,16 +266,16 @@ export default function ComparePanel({ logs }) {
                 <button
                   onClick={() => openDir(item)}
                   title="在文件管理器中查看备份"
-                  className="shrink-0 text-gray-300 hover:text-blue-400 text-sm transition-colors"
+                  className="shrink-0 text-stone-300 hover:text-emerald-600 text-sm transition-colors"
                 >
                   📂
                 </button>
                 <button
                   onClick={() => restore(item)}
                   disabled={isRestored || isLoading}
-                  className={`shrink-0 text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                  className={`shrink-0 text-xs px-2.5 py-1 rounded-2xl font-medium transition-colors ${
                     isRestored
-                      ? 'bg-gray-100 text-gray-400 cursor-default'
+                      ? 'bg-stone-100 text-stone-400 cursor-default'
                       : 'bg-red-50 text-red-500 hover:bg-red-100'
                   } disabled:opacity-60`}
                 >
@@ -289,40 +291,40 @@ export default function ComparePanel({ logs }) {
                   title="点击放大对比"
                 >
                   {/* 悬停提示 */}
-                  <div className="absolute inset-0 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  <div className="absolute inset-0 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                     <span className="bg-black/50 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-sm">
                       🔍 点击放大对比
                     </span>
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-gray-400 mb-1 text-center">原始备份</div>
-                    <div className="h-32 rounded-lg bg-white border border-gray-200 overflow-hidden flex items-center justify-center group-hover:border-gray-300 transition-colors">
+                    <div className="text-[10px] text-stone-400 mb-1 text-center">原始备份</div>
+                    <div className="h-32 rounded-2xl bg-white border border-stone-200 overflow-hidden flex items-center justify-center group-hover:border-stone-300 transition-colors">
                       <LocalImage
                         filePath={item.backupPath}
                         className="max-h-full max-w-full object-contain"
                         alt="original"
                       />
                     </div>
-                    <div className="text-[10px] text-gray-500 mt-1 text-center tabular-nums">
+                    <div className="text-[10px] text-stone-500 mt-1 text-center tabular-nums">
                       {item.inputSize}
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-center text-gray-300 text-lg shrink-0 mt-2">
+                  <div className="flex items-center justify-center text-stone-300 text-lg shrink-0 mt-2">
                     →
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-blue-500 mb-1 text-center">压缩后</div>
-                    <div className="h-32 rounded-lg bg-white border border-blue-200 overflow-hidden flex items-center justify-center group-hover:border-blue-300 transition-colors">
+                    <div className="text-[10px] text-emerald-700 mb-1 text-center">压缩后</div>
+                    <div className="h-32 rounded-2xl bg-white border border-lime-200 overflow-hidden flex items-center justify-center group-hover:border-lime-300 transition-colors">
                       <LocalImage
                         filePath={item.file}
                         className="max-h-full max-w-full object-contain"
                         alt="compressed"
                       />
                     </div>
-                    <div className="text-[10px] text-blue-600 mt-1 text-center tabular-nums">
+                    <div className="text-[10px] text-stone-950 mt-1 text-center tabular-nums">
                       {item.outputSize}
                     </div>
                   </div>
@@ -333,23 +335,23 @@ export default function ComparePanel({ logs }) {
               {!img && (
                 <div className="flex gap-3 mb-1">
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-gray-400 mb-1 text-center">原始备份</div>
-                    <div className="rounded-lg bg-white border border-gray-200 px-2 py-1.5">
+                    <div className="text-[10px] text-stone-400 mb-1 text-center">原始备份</div>
+                    <div className="rounded-2xl bg-white border border-stone-200 px-2 py-1.5">
                       <LocalAudio filePath={item.backupPath} />
                     </div>
-                    <div className="text-[10px] text-gray-500 mt-1 text-center tabular-nums">
+                    <div className="text-[10px] text-stone-500 mt-1 text-center tabular-nums">
                       {item.inputSize}
                     </div>
                   </div>
-                  <div className="flex items-center justify-center text-gray-300 text-lg shrink-0 mt-2">
+                  <div className="flex items-center justify-center text-stone-300 text-lg shrink-0 mt-2">
                     →
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-blue-500 mb-1 text-center">压缩后</div>
-                    <div className="rounded-lg bg-white border border-blue-200 px-2 py-1.5">
+                    <div className="text-[10px] text-emerald-700 mb-1 text-center">压缩后</div>
+                    <div className="rounded-2xl bg-white border border-lime-200 px-2 py-1.5">
                       <LocalAudio filePath={item.file} />
                     </div>
-                    <div className="text-[10px] text-blue-600 mt-1 text-center tabular-nums">
+                    <div className="text-[10px] text-stone-950 mt-1 text-center tabular-nums">
                       {item.outputSize}
                     </div>
                   </div>
@@ -358,8 +360,8 @@ export default function ComparePanel({ logs }) {
 
               {/* 音频节省量 */}
               {!img && (
-                <div className="mt-0.5 text-right text-xs text-gray-500">
-                  节省 <span className="text-green-600 font-semibold">{item.saved}</span>
+                <div className="mt-0.5 text-right text-xs text-stone-500">
+                  节省 <span className="text-emerald-600 font-semibold">{item.saved}</span>
                 </div>
               )}
 
@@ -368,8 +370,8 @@ export default function ComparePanel({ logs }) {
 
               {/* 图片额外展示节省量 */}
               {img && (
-                <div className="mt-1.5 text-right text-xs text-gray-500">
-                  节省 <span className="text-green-600 font-semibold">{item.saved}</span>
+                <div className="mt-1.5 text-right text-xs text-stone-500">
+                  节省 <span className="text-emerald-600 font-semibold">{item.saved}</span>
                 </div>
               )}
             </div>

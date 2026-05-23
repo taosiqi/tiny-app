@@ -1,0 +1,55 @@
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
+import { open } from '@tauri-apps/plugin-dialog'
+
+function subscribe(channel, cb) {
+  let active = true
+  const unlistenPromise = listen(channel, (event) => {
+    if (active) cb(event.payload)
+  })
+
+  return () => {
+    active = false
+    unlistenPromise.then((unlisten) => unlisten()).catch(() => {})
+  }
+}
+
+function runCommand(command, payload) {
+  invoke(command, payload).catch((error) => {
+    console.error(`[tauri] ${command} failed`, error)
+  })
+}
+
+export async function openFiles(options = {}) {
+  const selected = await open({
+    multiple: true,
+    directory: false,
+    filters: options.filters ?? []
+  })
+  if (!selected) return []
+  return Array.isArray(selected) ? selected : [selected]
+}
+
+export async function openDirectory() {
+  const selected = await open({ multiple: false, directory: true })
+  return Array.isArray(selected) ? (selected[0] ?? null) : selected
+}
+
+export const openExternal = (url) => invoke('open_external', { url })
+export const getAppVersion = () => invoke('get_app_version')
+export const checkTinypngKey = (apiKey) => invoke('check_tinypng_key', { apiKey })
+export const compressImage = (payload) => runCommand('compress_image', { payload })
+export const stopImageCompression = () => invoke('stop_image_compression')
+export const compressAudio = (payload) => runCommand('compress_audio', { payload })
+export const restoreFile = (backupPath, originalPath) =>
+  invoke('restore_file', { payload: { backupPath, originalPath } })
+export const openInFinder = (filePath) => invoke('open_in_finder', { filePath })
+
+export const onImageTotal = (cb) => subscribe('compress:image:total', cb)
+export const onImageProgress = (cb) => subscribe('compress:image:progress', cb)
+export const onImageKeyCount = (cb) => subscribe('compress:image:keycount', cb)
+export const onImageDone = (cb) => subscribe('compress:image:done', cb)
+export const onImagePaused = (cb) => subscribe('compress:image:paused', cb)
+export const onAudioTotal = (cb) => subscribe('compress:audio:total', cb)
+export const onAudioProgress = (cb) => subscribe('compress:audio:progress', cb)
+export const onAudioDone = (cb) => subscribe('compress:audio:done', cb)

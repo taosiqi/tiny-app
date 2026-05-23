@@ -12,6 +12,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import PropTypes from 'prop-types'
 import ComparePanel from './ComparePanel'
+import { checkTinypngKey, compressImage, onImageDone, onImageKeyCount, onImagePaused, onImageProgress, onImageTotal, openDirectory, openExternal, openFiles, stopImageCompression } from '../api/desktop'
 import { basename } from '../utils/fileUtils'
 
 /**
@@ -40,7 +41,7 @@ function Tooltip({ text }) {
         ref={triggerRef}
         onMouseEnter={show}
         onMouseLeave={() => setVisible(false)}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-100 text-gray-400 text-[10px] font-bold cursor-default hover:bg-blue-100 hover:text-blue-500 transition-colors"
+        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-stone-100 text-stone-400 text-[10px] font-bold cursor-default hover:bg-lime-200 hover:text-emerald-700 transition-colors"
       >
         i
       </span>
@@ -50,9 +51,9 @@ function Tooltip({ text }) {
             className="fixed z-99999 pointer-events-none"
             style={{ top: pos.top, left: pos.left, transform: 'translate(-50%, -100%)' }}
           >
-            <div className="w-64 px-3 py-2 rounded-lg bg-gray-800 text-white text-[11px] leading-relaxed shadow-lg">
+            <div className="w-64 px-3 py-2 rounded-2xl bg-stone-900 text-white text-[11px] leading-relaxed shadow-lg">
               {text}
-              <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-gray-800" />
+              <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-stone-900" />
             </div>
           </div>,
           document.body
@@ -89,10 +90,10 @@ function loadStoredKeys() {
 
 /** 日志条目状态 → Tailwind 色彩类映射 */
 const STATUS_CLASS = {
-  success: 'bg-green-100 text-green-700',
+  success: 'bg-green-100 text-emerald-700',
   skipped: 'bg-yellow-100 text-yellow-700',
   error: 'bg-red-100 text-red-700',
-  pending: 'bg-gray-100 text-gray-500'
+  pending: 'bg-stone-100 text-stone-500'
 }
 
 /** TinyPNG 每个 API Key 每月免费压缩次数上限 */
@@ -150,7 +151,7 @@ export default function TinyPNG() {
     const keyVal = keys[i].value.trim()
     if (!keyVal) return
     updateKey(i, { status: 'checking', error: null })
-    const result = await window.api.checkTinypngKey(keyVal)
+    const result = await checkTinypngKey(keyVal)
     if (result.valid) {
       updateKey(i, {
         status: 'valid',
@@ -163,7 +164,7 @@ export default function TinyPNG() {
   }
 
   const addFiles = async () => {
-    const files = await window.api.openFiles({
+    const files = await openFiles({
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]
     })
     if (files.length > 0) {
@@ -172,7 +173,7 @@ export default function TinyPNG() {
   }
 
   const addDirectory = async () => {
-    const dir = await window.api.openDirectory()
+    const dir = await openDirectory()
     if (dir) setPaths((prev) => [...new Set([...prev, dir])])
   }
 
@@ -202,10 +203,10 @@ export default function TinyPNG() {
     setTotal(0)
     setRunning(true)
 
-    const cleanTotal = window.api.onImageTotal((n) => {
+    const cleanTotal = onImageTotal((n) => {
       setTotal(n)
     })
-    const cleanProgress = window.api.onImageProgress((item) => {
+    const cleanProgress = onImageProgress((item) => {
       if (isRetry) {
         // 重试：替换同路径的最后一条错误条目；若找不到则追加
         setLogs((prev) => {
@@ -220,7 +221,7 @@ export default function TinyPNG() {
       }
       scrollBottom()
     })
-    const cleanKeyCount = window.api.onImageKeyCount(({ key, compressionCount }) => {
+    const cleanKeyCount = onImageKeyCount(({ key, compressionCount }) => {
       setKeys((prev) =>
         prev.map((k) => (k.value.trim() === key ? { ...k, status: 'valid', compressionCount } : k))
       )
@@ -232,37 +233,29 @@ export default function TinyPNG() {
       cleanDone()
       cleanPaused()
     }
-    const cleanDone = window.api.onImageDone((s) => {
+    const cleanDone = onImageDone((s) => {
       setStats(s)
       setRunning(false)
       // 任务完成后清理所有 IPC 监听器，防止泄漏
       cleanup()
     })
-    const cleanPaused = window.api.onImagePaused(({ remaining }) => {
+    const cleanPaused = onImagePaused(({ remaining }) => {
       // Key 全部耗尽：暂停任务，保存剩余文件列表，等待用户添加新 Key 后继续
       setPaused({ remaining })
       setRunning(false)
       cleanup()
     })
 
-    window.api.compressImage({ paths: targetFiles, apiKeys: validKeys, recursive })
+    compressImage({ paths: targetFiles, apiKeys: validKeys, recursive })
   }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 bg-white border-b border-gray-200 shrink-0">
-        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <span>🖼</span> 图片压缩
-        </h2>
-        <p className="text-xs text-gray-400 mt-0.5">使用 TinyPNG API 压缩 PNG / JPG / JPEG 图片</p>
-      </div>
-
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-6 py-5 gap-4">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-7 py-6 gap-4">
         {/* API Keys */}
-        <section className="bg-white rounded-xl border border-gray-200 p-5 shrink-0">
+        <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 p-5 shrink-0">
           <div className="flex items-center justify-between mb-3">
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+            <label className="text-sm font-medium text-stone-700 flex items-center gap-1.5">
               API Keys
               <Tooltip
                 text={
@@ -274,10 +267,10 @@ export default function TinyPNG() {
               />
               <a
                 href="https://tinify.com/developers"
-                className="ml-1 text-xs font-normal text-blue-500 underline cursor-pointer"
+                className="ml-1 text-xs font-normal text-emerald-700 underline cursor-pointer"
                 onClick={(e) => {
                   e.preventDefault()
-                  window.api.openExternal('https://tinify.com/developers')
+                  openExternal('https://tinify.com/developers')
                 }}
               >
                 申请
@@ -286,7 +279,7 @@ export default function TinyPNG() {
             <button
               onClick={addKey}
               disabled={running}
-              className="text-xs px-2.5 py-1 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 border border-gray-200 transition-colors disabled:opacity-50"
+              className="text-xs px-2.5 py-1 bg-stone-50 text-stone-600 rounded-2xl hover:bg-stone-100 border border-stone-200 transition-colors disabled:opacity-50"
             >
               + 添加 Key
             </button>
@@ -308,22 +301,22 @@ export default function TinyPNG() {
                   }
                   placeholder="your-api-key"
                   disabled={running}
-                  className={`flex-1 text-xs border rounded-lg px-3 py-2 font-mono outline-none transition-colors disabled:opacity-50 ${
+                  className={`flex-1 text-xs border rounded-2xl px-3 py-2 font-mono outline-none transition-colors disabled:opacity-50 ${
                     k.status === 'valid'
                       ? 'border-green-300 focus:border-green-400'
                       : k.status === 'invalid'
                         ? 'border-red-300 focus:border-red-400'
-                        : 'border-gray-200 focus:border-blue-400'
+                        : 'border-stone-200 focus:border-lime-400'
                   }`}
                 />
 
                 {/* 剩余次数徽标 */}
                 {k.status === 'valid' && k.compressionCount !== null && (
                   <span
-                    className={`shrink-0 text-xs px-2 py-1 rounded-lg font-medium tabular-nums ${
+                    className={`shrink-0 text-xs px-2 py-1 rounded-2xl font-medium tabular-nums ${
                       KEY_LIMIT - k.compressionCount <= 50
                         ? 'bg-orange-50 text-orange-600'
-                        : 'bg-green-50 text-green-600'
+                        : 'bg-emerald-50 text-emerald-600'
                     }`}
                     title={`已用 ${k.compressionCount} / ${KEY_LIMIT}`}
                   >
@@ -343,7 +336,7 @@ export default function TinyPNG() {
                 <button
                   onClick={() => checkKey(i)}
                   disabled={!k.value.trim() || k.status === 'checking' || running}
-                  className="shrink-0 text-xs px-2.5 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 disabled:opacity-40 transition-colors"
+                  className="shrink-0 text-xs px-2.5 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-40 transition-colors"
                 >
                   {k.status === 'checking' ? '…' : '验证'}
                 </button>
@@ -352,7 +345,7 @@ export default function TinyPNG() {
                 <button
                   onClick={() => removeKey(i)}
                   disabled={running}
-                  className="shrink-0 text-gray-300 hover:text-red-400 text-sm disabled:opacity-30"
+                  className="shrink-0 text-stone-300 hover:text-red-400 text-sm disabled:opacity-30"
                 >
                   ✕
                 </button>
@@ -362,21 +355,21 @@ export default function TinyPNG() {
         </section>
 
         {/* Paths */}
-        <section className="bg-white rounded-xl border border-gray-200 p-5 shrink-0">
+        <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 p-5 shrink-0">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-gray-700">目标路径</span>
+            <span className="text-sm font-medium text-stone-700">目标路径</span>
             <div className="flex gap-2">
               <button
                 onClick={addFiles}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
               >
                 + 添加文件
               </button>
               <button
                 onClick={addDirectory}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
               >
                 + 添加目录
               </button>
@@ -384,21 +377,21 @@ export default function TinyPNG() {
           </div>
 
           {paths.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 text-sm border border-dashed border-gray-200 rounded-lg">
+            <div className="text-center py-8 text-stone-400 text-sm border border-dashed border-stone-200 rounded-2xl">
               点击上方按钮添加图片文件或目录
             </div>
           ) : (
             <ul className="space-y-1 max-h-40 overflow-y-auto">
               {paths.map((p) => (
                 <li key={p} className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-400 text-xs">📄</span>
-                  <span className="flex-1 truncate text-gray-700 font-mono text-xs" title={p}>
+                  <span className="text-stone-400 text-xs">📄</span>
+                  <span className="flex-1 truncate text-stone-700 font-mono text-xs" title={p}>
                     {p}
                   </span>
                   <button
                     onClick={() => removePath(p)}
                     disabled={running}
-                    className="text-gray-300 hover:text-red-400 text-xs shrink-0 disabled:opacity-30"
+                    className="text-stone-300 hover:text-red-400 text-xs shrink-0 disabled:opacity-30"
                   >
                     ✕
                   </button>
@@ -412,9 +405,9 @@ export default function TinyPNG() {
               checked={recursive}
               onChange={(e) => setRecursive(e.target.checked)}
               disabled={running}
-              className="w-3.5 h-3.5 accent-blue-500 disabled:opacity-50"
+              className="w-3.5 h-3.5 accent-lime-500 disabled:opacity-50"
             />
-            <span className="text-xs text-gray-500">递归子目录</span>
+            <span className="text-xs text-stone-500">递归子目录</span>
           </label>
         </section>
 
@@ -422,7 +415,7 @@ export default function TinyPNG() {
         {paused ? (
           <>
             {/* 暂停提示 */}
-            <section className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 text-sm text-orange-800 shrink-0">
+            <section className="bg-orange-50 border border-orange-200 rounded-2xl px-4 py-3 text-sm text-orange-800 shrink-0">
               {keys
                 .filter((k) => k.status === 'valid')
                 .every((k) => k.compressionCount >= KEY_LIMIT) ? (
@@ -441,13 +434,13 @@ export default function TinyPNG() {
             <div className="flex gap-3 shrink-0">
               <button
                 onClick={() => startCompress(paused.remaining)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                className="flex-1 py-2.5 rounded-2xl text-sm font-semibold bg-stone-950 text-white hover:bg-stone-800 transition-colors"
               >
                 ▶ 继续压缩（{paused.remaining.length} 张）
               </button>
               <button
                 onClick={() => setPaused(null)}
-                className="px-4 py-2.5 rounded-xl text-sm text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-200 transition-colors"
+                className="px-4 py-2.5 rounded-2xl text-sm text-stone-500 hover:text-red-500 border border-stone-200 hover:border-red-200 transition-colors"
               >
                 放弃
               </button>
@@ -455,8 +448,8 @@ export default function TinyPNG() {
           </>
         ) : running ? (
           <button
-            onClick={() => window.api.compressImageStop()}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors shrink-0 bg-yellow-500 text-white hover:bg-yellow-600"
+            onClick={() => stopImageCompression()}
+            className="w-full py-2.5 rounded-2xl text-sm font-semibold transition-colors shrink-0 bg-yellow-500 text-white hover:bg-yellow-600"
           >
             ⏸ 暂停 ({logs.length}/{total})
           </button>
@@ -464,7 +457,7 @@ export default function TinyPNG() {
           <button
             onClick={() => startCompress()}
             disabled={running}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors shrink-0 bg-blue-600 text-white hover:bg-blue-700"
+            className="w-full py-2.5 rounded-2xl text-sm font-semibold transition-colors shrink-0 bg-stone-950 text-white hover:bg-stone-800"
           >
             🚀 开始压缩
           </button>
@@ -472,21 +465,21 @@ export default function TinyPNG() {
 
         {/* Stats — 紧凑横条，位于日志区上方 */}
         {stats && (
-          <section className="shrink-0 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 flex items-center gap-4 flex-wrap">
-            <span className="text-xs font-semibold text-green-800 shrink-0">✅ 压缩完成</span>
+          <section className="shrink-0 bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-2.5 flex items-center gap-4 flex-wrap">
+            <span className="text-xs font-semibold text-emerald-900 shrink-0">✅ 压缩完成</span>
             <div className="flex gap-4 flex-1 flex-wrap">
               {[
-                { label: '总文件', value: stats.total, color: 'text-gray-700' },
-                { label: '已压缩', value: stats.processed, color: 'text-green-700' },
+                { label: '总文件', value: stats.total, color: 'text-stone-700' },
+                { label: '已压缩', value: stats.processed, color: 'text-emerald-700' },
                 { label: '已跳过', value: stats.skipped, color: 'text-yellow-600' },
                 { label: '失败', value: stats.failed, color: 'text-red-600' }
               ].map(({ label, value, color }) => (
-                <span key={label} className="text-xs text-gray-500">
+                <span key={label} className="text-xs text-stone-500">
                   {label}：<span className={`font-bold ${color}`}>{value}</span>
                 </span>
               ))}
             </div>
-            <span className="text-xs text-green-700 shrink-0">
+            <span className="text-xs text-emerald-700 shrink-0">
               节省 <span className="font-bold">{stats.savedBytes}</span>
             </span>
           </section>
@@ -494,15 +487,15 @@ export default function TinyPNG() {
 
         {/* Log / Compare tabs */}
         {logs.length > 0 && (
-          <section className="bg-white rounded-xl border border-gray-200 flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between shrink-0">
               <div className="flex gap-0.5">
                 <button
                   onClick={() => setActiveTab('log')}
-                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                     activeTab === 'log'
-                      ? 'bg-gray-100 text-gray-700 font-medium'
-                      : 'text-gray-400 hover:text-gray-600'
+                      ? 'bg-stone-100 text-stone-700 font-medium'
+                      : 'text-stone-400 hover:text-stone-600'
                   }`}
                 >
                   处理日志
@@ -510,15 +503,15 @@ export default function TinyPNG() {
                 {stats && (
                   <button
                     onClick={() => setActiveTab('compare')}
-                    className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                    className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                       activeTab === 'compare'
-                        ? 'bg-blue-50 text-blue-600 font-medium'
-                        : 'text-gray-400 hover:text-blue-500'
+                        ? 'bg-lime-100 text-stone-950 font-medium'
+                        : 'text-stone-400 hover:text-emerald-700'
                     }`}
                   >
                     压缩对比
                     {logs.filter((l) => l.status === 'success').length > 0 && (
-                      <span className="ml-1 bg-blue-100 text-blue-600 rounded-full px-1.5 py-0.5 text-[10px]">
+                      <span className="ml-1 bg-lime-100 text-stone-950 rounded-full px-1.5 py-0.5 text-[10px]">
                         {logs.filter((l) => l.status === 'success').length}
                       </span>
                     )}
@@ -539,13 +532,13 @@ export default function TinyPNG() {
                     重试失败 ({logs.filter((l) => l.status === 'error').length})
                   </button>
                 )}
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-stone-400">
                   {logs.length} / {total}
                 </span>
               </div>
             </div>
             {activeTab === 'log' ? (
-              <ul ref={logRef} className="flex-1 overflow-y-auto divide-y divide-gray-50">
+              <ul ref={logRef} className="flex-1 overflow-y-auto divide-y divide-stone-100">
                 {logs.map((item, i) => (
                   <li key={i} className="flex items-center gap-2 px-4 py-1.5">
                     <span
@@ -558,15 +551,15 @@ export default function TinyPNG() {
                           : '✗ 失败'}
                     </span>
                     <span
-                      className="flex-1 truncate text-xs text-gray-600 font-mono"
+                      className="flex-1 truncate text-xs text-stone-600 font-mono"
                       title={item.file}
                     >
                       {basename(item.file)}
                     </span>
                     {item.status === 'success' && (
-                      <span className="text-xs text-green-600 shrink-0">
+                      <span className="text-xs text-emerald-600 shrink-0">
                         {item.inputSize} → {item.outputSize}{' '}
-                        <span className="text-green-500">(-{item.saved})</span>
+                        <span className="text-emerald-500">(-{item.saved})</span>
                       </span>
                     )}
                     {item.status === 'error' && (

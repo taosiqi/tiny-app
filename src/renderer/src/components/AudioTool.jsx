@@ -9,11 +9,12 @@
 import { useState, useRef, useCallback } from 'react'
 import PropTypes from 'prop-types'
 import ComparePanel from './ComparePanel'
+import { compressAudio, onAudioDone, onAudioProgress, onAudioTotal, openDirectory, openFiles } from '../api/desktop'
 import { basename } from '../utils/fileUtils'
 
 /** 日志条目状态 → Tailwind 色彩类映射 */
 const STATUS_CLASS = {
-  success: 'bg-green-100 text-green-700',
+  success: 'bg-green-100 text-emerald-700',
   skipped: 'bg-yellow-100 text-yellow-700',
   error: 'bg-red-100 text-red-700'
 }
@@ -21,23 +22,17 @@ const STATUS_CLASS = {
 /** 各音频格式的 UI 元数据与文件过滤配置 */
 const FORMAT_META = {
   mp3: {
-    icon: '🎵',
     label: 'MP3 压缩',
-    desc: '使用 ffmpeg 将 MP3 压缩为 64kbps 单声道 44.1kHz',
     ext: '.mp3',
     filter: { name: 'MP3 Audio', extensions: ['mp3'] }
   },
   ogg: {
-    icon: '🎶',
     label: 'OGG 压缩',
-    desc: '使用 ffmpeg 将 OGG 压缩为 libvorbis 96kbps 44.1kHz',
     ext: '.ogg',
     filter: { name: 'OGG Audio', extensions: ['ogg'] }
   },
   wav: {
-    icon: '🔊',
     label: 'WAV 压缩',
-    desc: '使用 ffmpeg 将 WAV 重编码为 pcm_s16le 单声道 22050Hz，体积可减少 75%+',
     ext: '.wav',
     filter: { name: 'WAV Audio', extensions: ['wav'] }
   }
@@ -68,12 +63,12 @@ export default function AudioTool({ format }) {
   }, [])
 
   const addFiles = async () => {
-    const files = await window.api.openFiles({ filters: [meta.filter] })
+    const files = await openFiles({ filters: [meta.filter] })
     if (files.length > 0) setPaths((prev) => [...new Set([...prev, ...files])])
   }
 
   const addDirectory = async () => {
-    const dir = await window.api.openDirectory()
+    const dir = await openDirectory()
     if (dir) setPaths((prev) => [...new Set([...prev, dir])])
   }
 
@@ -93,12 +88,12 @@ export default function AudioTool({ format }) {
     setTotal(0)
     setRunning(true)
 
-    const cleanTotal = window.api.onAudioTotal((n) => setTotal(n))
-    const cleanProgress = window.api.onAudioProgress((item) => {
+    const cleanTotal = onAudioTotal((n) => setTotal(n))
+    const cleanProgress = onAudioProgress((item) => {
       setLogs((prev) => [...prev, item])
       scrollBottom()
     })
-    const cleanDone = window.api.onAudioDone((s) => {
+    const cleanDone = onAudioDone((s) => {
       setStats(s)
       setRunning(false)
       // 任务完成后清理所有 IPC 监听器，防止泄漏
@@ -107,36 +102,29 @@ export default function AudioTool({ format }) {
       cleanDone()
     })
 
-    window.api.compressAudio({ paths, format, recursive })
+    compressAudio({ paths, format, recursive })
   }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 bg-white border-b border-gray-200 shrink-0">
-        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <span>{meta.icon}</span> {meta.label}
-        </h2>
-        <p className="text-xs text-gray-400 mt-0.5">{meta.desc}</p>
-      </div>
-
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-6 py-5 gap-4">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-7 py-6 gap-4">
         {/* Paths */}
-        <section className="bg-white rounded-xl border border-gray-200 p-5 shrink-0">
+        <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 p-5 shrink-0">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-gray-700">目标路径</span>
+            <span className="text-sm font-medium text-stone-700">目标路径</span>
             <div className="flex gap-2">
               <button
                 onClick={addFiles}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
               >
                 + 添加文件
               </button>
               <button
                 onClick={addDirectory}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 bg-lime-100 text-stone-950 rounded-2xl hover:bg-lime-200 disabled:opacity-50 transition-colors"
               >
                 + 添加目录
               </button>
@@ -144,21 +132,21 @@ export default function AudioTool({ format }) {
           </div>
 
           {paths.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 text-sm border border-dashed border-gray-200 rounded-lg">
+            <div className="text-center py-8 text-stone-400 text-sm border border-dashed border-stone-200 rounded-2xl">
               点击上方按钮添加 {meta.ext} 文件或目录
             </div>
           ) : (
             <ul className="space-y-1 max-h-40 overflow-y-auto">
               {paths.map((p) => (
                 <li key={p} className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-400 text-xs">🎧</span>
-                  <span className="flex-1 truncate text-gray-700 font-mono text-xs" title={p}>
+                  <span className="text-stone-400 text-xs">🎧</span>
+                  <span className="flex-1 truncate text-stone-700 font-mono text-xs" title={p}>
                     {p}
                   </span>
                   <button
                     onClick={() => removePath(p)}
                     disabled={running}
-                    className="text-gray-300 hover:text-red-400 text-xs shrink-0 disabled:opacity-30"
+                    className="text-stone-300 hover:text-red-400 text-xs shrink-0 disabled:opacity-30"
                   >
                     ✕
                   </button>
@@ -172,9 +160,9 @@ export default function AudioTool({ format }) {
               checked={recursive}
               onChange={(e) => setRecursive(e.target.checked)}
               disabled={running}
-              className="w-3.5 h-3.5 accent-blue-500 disabled:opacity-50"
+              className="w-3.5 h-3.5 accent-lime-500 disabled:opacity-50"
             />
-            <span className="text-xs text-gray-500">递归子目录</span>
+            <span className="text-xs text-stone-500">递归子目录</span>
           </label>
         </section>
 
@@ -182,11 +170,11 @@ export default function AudioTool({ format }) {
         <button
           onClick={startCompress}
           disabled={running}
-          className={`w-full shrink-0 py-2.5 rounded-xl text-sm font-semibold transition-colors
+          className={`w-full shrink-0 py-2.5 rounded-2xl text-sm font-semibold transition-colors
             ${
               running
-                ? 'bg-blue-300 text-white cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-stone-300 text-white cursor-not-allowed'
+                : 'bg-stone-950 text-white hover:bg-stone-800'
             }`}
         >
           {running ? `⏳ 压缩中… (${logs.length}/${total})` : '🚀 开始压缩'}
@@ -194,21 +182,21 @@ export default function AudioTool({ format }) {
 
         {/* Stats — 紧凑横条，位于日志区上方 */}
         {stats && (
-          <section className="shrink-0 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 flex items-center gap-4 flex-wrap">
-            <span className="text-xs font-semibold text-green-800 shrink-0">✅ 压缩完成</span>
+          <section className="shrink-0 bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-2.5 flex items-center gap-4 flex-wrap">
+            <span className="text-xs font-semibold text-emerald-900 shrink-0">✅ 压缩完成</span>
             <div className="flex gap-4 flex-1 flex-wrap">
               {[
-                { label: '总文件', value: stats.total, color: 'text-gray-700' },
-                { label: '已压缩', value: stats.processed, color: 'text-green-700' },
+                { label: '总文件', value: stats.total, color: 'text-stone-700' },
+                { label: '已压缩', value: stats.processed, color: 'text-emerald-700' },
                 { label: '已跳过', value: stats.skipped, color: 'text-yellow-600' },
                 { label: '失败', value: stats.failed, color: 'text-red-600' }
               ].map(({ label, value, color }) => (
-                <span key={label} className="text-xs text-gray-500">
+                <span key={label} className="text-xs text-stone-500">
                   {label}：<span className={`font-bold ${color}`}>{value}</span>
                 </span>
               ))}
             </div>
-            <span className="text-xs text-green-700 shrink-0">
+            <span className="text-xs text-emerald-700 shrink-0">
               节省 <span className="font-bold">{stats.savedBytes}</span>
             </span>
           </section>
@@ -216,15 +204,15 @@ export default function AudioTool({ format }) {
 
         {/* Log / Compare tabs */}
         {logs.length > 0 && (
-          <section className="bg-white rounded-xl border border-gray-200 flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between shrink-0">
               <div className="flex gap-0.5">
                 <button
                   onClick={() => setActiveTab('log')}
-                  className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                  className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                     activeTab === 'log'
-                      ? 'bg-gray-100 text-gray-700 font-medium'
-                      : 'text-gray-400 hover:text-gray-600'
+                      ? 'bg-stone-100 text-stone-700 font-medium'
+                      : 'text-stone-400 hover:text-stone-600'
                   }`}
                 >
                   处理日志
@@ -232,27 +220,27 @@ export default function AudioTool({ format }) {
                 {stats && (
                   <button
                     onClick={() => setActiveTab('compare')}
-                    className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                    className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
                       activeTab === 'compare'
-                        ? 'bg-blue-50 text-blue-600 font-medium'
-                        : 'text-gray-400 hover:text-blue-500'
+                        ? 'bg-lime-100 text-stone-950 font-medium'
+                        : 'text-stone-400 hover:text-emerald-700'
                     }`}
                   >
                     压缩对比
                     {logs.filter((l) => l.status === 'success').length > 0 && (
-                      <span className="ml-1 bg-blue-100 text-blue-600 rounded-full px-1.5 py-0.5 text-[10px]">
+                      <span className="ml-1 bg-lime-100 text-stone-950 rounded-full px-1.5 py-0.5 text-[10px]">
                         {logs.filter((l) => l.status === 'success').length}
                       </span>
                     )}
                   </button>
                 )}
               </div>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-stone-400">
                 {logs.length} / {total}
               </span>
             </div>
             {activeTab === 'log' ? (
-              <ul ref={logRef} className="flex-1 overflow-y-auto divide-y divide-gray-50">
+              <ul ref={logRef} className="flex-1 overflow-y-auto divide-y divide-stone-100">
                 {logs.map((item, i) => (
                   <li key={i} className="flex items-center gap-2 px-4 py-1.5">
                     <span
@@ -265,15 +253,15 @@ export default function AudioTool({ format }) {
                           : '✗ 失败'}
                     </span>
                     <span
-                      className="flex-1 truncate text-xs text-gray-600 font-mono"
+                      className="flex-1 truncate text-xs text-stone-600 font-mono"
                       title={item.file}
                     >
                       {basename(item.file)}
                     </span>
                     {item.status === 'success' && (
-                      <span className="text-xs text-green-600 shrink-0">
+                      <span className="text-xs text-emerald-600 shrink-0">
                         {item.inputSize} → {item.outputSize}{' '}
-                        <span className="text-green-500">(-{item.saved})</span>
+                        <span className="text-emerald-500">(-{item.saved})</span>
                       </span>
                     )}
                     {item.status === 'skipped' && (

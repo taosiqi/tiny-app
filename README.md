@@ -1,6 +1,6 @@
-# tiny-app
+# TinyPress
 
-一款基于 Electron + React 的桌面无损压缩工具，支持：
+一款基于 Tauri + React 的桌面无损压缩工具，支持：
 
 - TinyPNG 图片压缩（PNG / JPG / JPEG）
 - 音频压缩（MP3 / OGG / WAV，基于 ffmpeg）
@@ -10,7 +10,7 @@
 
 ## 功能特性
 
-### 1) 图片压缩（TinyPNG）
+### 图片压缩（TinyPNG）
 
 - 支持多 API Key 管理（本地持久化）
 - 支持 API Key 有效性检查与当月已用次数展示
@@ -18,20 +18,20 @@
 - 全部 Key 用尽时自动暂停，可补充 Key 后继续
 - 保留压缩日志与统计（成功 / 跳过 / 失败 / 节省体积）
 
-### 2) 音频压缩（ffmpeg）
+### 音频压缩（ffmpeg）
 
 - MP3：`64kbps`、单声道、`44.1kHz`
 - OGG：`libvorbis`、`96kbps`、`44.1kHz`
 - WAV：`pcm_s16le`、单声道、`22.05kHz`
 - 若压缩后体积未减小，会自动跳过，不覆盖原文件
 
-### 3) 对比与还原
+### 对比与还原
 
 - 压缩前自动备份原文件到同目录 `_tiny_backup/`
 - 对比面板支持查看压缩前后体积与媒体预览
 - 支持一键还原（将备份覆盖回原文件）
 
-### 4) 路径处理
+### 路径处理
 
 - 支持“添加文件”与“添加目录”
 - 支持“递归子目录”开关
@@ -41,12 +41,12 @@
 
 ## 技术栈
 
-- Electron 39
+- Tauri 2
+- Rust + reqwest
 - React 19
-- electron-vite
+- Vite
 - UnoCSS
 - ffmpeg-static
-- axios
 
 ---
 
@@ -54,8 +54,9 @@
 
 ### 环境要求
 
-- Node.js 18+
+- Node.js 20+
 - pnpm 10+
+- Rust / Cargo
 - macOS / Windows / Linux
 
 ### 安装依赖
@@ -81,8 +82,6 @@ pnpm format
 
 ## 打包构建
 
-> 构建前会先执行 `electron-vite build`，再由 `electron-builder` 生成安装包。
-
 ### 通用构建
 
 ```bash
@@ -92,27 +91,17 @@ pnpm build
 ### 平台构建
 
 ```bash
-# Windows
-pnpm build:win
-
-# macOS（x64 + arm64）
+# macOS
 pnpm build:mac
 
-# macOS 单架构
-pnpm build:mac:x64
-pnpm build:mac:arm64
+# Windows
+pnpm build:win
 
 # Linux
 pnpm build:linux
 ```
 
-### 仅输出解包目录
-
-```bash
-pnpm build:unpack
-```
-
-构建产物默认在 `dist/`。
+构建产物默认在 `src-tauri/target/release/bundle/`。
 
 ---
 
@@ -140,9 +129,9 @@ pnpm build:unpack
 
 ```text
 src/
-	main/                 # 主进程（IPC、压缩逻辑、文件处理）
-	preload/              # 安全桥接层（window.api）
-	renderer/             # 前端界面（React）
+  renderer/             # 前端界面（React）
+    src/api/desktop.js  # Tauri invoke/event 函数封装
+src-tauri/              # Tauri / Rust 桌面端能力
 ```
 
 ---
@@ -163,6 +152,12 @@ src/
 
 - 位于原文件同目录下的 `_tiny_backup/`
 
+### 4) ffmpeg 找不到怎么办
+
+- 开发环境默认使用 `node_modules/ffmpeg-static/ffmpeg`
+- 打包环境会随 Tauri bundle 带入 ffmpeg
+- 也可以通过 `FFMPEG_PATH=/path/to/ffmpeg pnpm dev` 指定自定义 ffmpeg
+
 ---
 
 ## 授权协议
@@ -173,4 +168,4 @@ src/
 - 公司、企业、机构或其他组织使用时，必须购买商业授权
 - 未经授权，不得将本项目用于公司/组织的生产、经营或内部业务场景
 
-如需商业授权，请联系 ：`siqijson@gmail.com`
+如需商业授权，请联系：`siqijson@gmail.com`

@@ -1,6 +1,27 @@
-node_modules
-dist
-out
-.DS_Store
-.eslintcache
+# Dependencies
+node_modules/
+
+# Frontend build output
+dist/
+out/
+build/
+
+# Tauri / Rust build output
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Logs and caches
 *.log*
+.eslintcache
+.vite/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/.ropeproject
+
+# Local environment
+.env
+.env.*
+!.env.example
