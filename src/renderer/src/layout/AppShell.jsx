@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import TinyPNG from '../components/TinyPNG'
 import AudioTool from '../components/AudioTool'
+import FileCompare from '../components/FileCompare'
 import Settings from '../components/Settings'
 import { getAppVersion, onOpenSettings } from '../api/desktop'
 import KeepAliveLayout from './KeepAliveLayout'
@@ -48,12 +49,14 @@ export default function AppShell() {
 
           <section className="min-h-0 flex-1 overflow-hidden">
             <Routes>
-              <Route path="/" element={<Navigate to="/png" replace />} />
-              <Route element={<KeepAliveLayout />}>
-                <Route path="/png" element={<TinyPNG />} />
-                <Route path="/mp3" element={<AudioTool format="mp3" />} />
-                <Route path="/ogg" element={<AudioTool format="ogg" />} />
-                <Route path="/wav" element={<AudioTool format="wav" />} />
+                <Route path="/" element={<Navigate to="/png" replace />} />
+                <Route element={<KeepAliveLayout />}>
+                  <Route path="/png" element={<TinyPNG />} />
+                <Route path="/audio" element={<AudioTool />} />
+                <Route path="/mp3" element={<Navigate to="/audio?format=mp3" replace />} />
+                <Route path="/ogg" element={<Navigate to="/audio?format=ogg" replace />} />
+                <Route path="/wav" element={<Navigate to="/audio?format=wav" replace />} />
+                <Route path="/compare" element={<FileCompare />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>
             </Routes>

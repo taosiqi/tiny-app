@@ -6,7 +6,7 @@ export default function KeepAliveLayout() {
   const location = useLocation()
   const outlet = useOutlet()
   const currentCacheKey = useMemo(
-    () => location.pathname + location.search,
+    () => (location.pathname === '/audio' ? location.pathname : location.pathname + location.search),
     [location.pathname, location.search]
   )
 

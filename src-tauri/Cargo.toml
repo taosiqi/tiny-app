@@ -1,6 +1,6 @@
 [package]
 name = "tiny-app"
-version = "1.1.8"
+version = "1.2.0"
 description = "A Tauri desktop utility for TinyPNG and audio compression"
 authors = ["taosiqi"]
 edition = "2021"
@@ -20,3 +20,7 @@ serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["process"] }
 urlencoding = "2"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

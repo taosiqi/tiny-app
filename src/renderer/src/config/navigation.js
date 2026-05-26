@@ -1,7 +1,6 @@
 export const NAV_ITEMS = [
   { path: '/png', label: '图片压缩', icon: 'PNG', desc: 'TinyPNG 批量优化' },
-  { path: '/mp3', label: 'MP3 压缩', icon: 'MP3', desc: '64kbps 单声道' },
-  { path: '/ogg', label: 'OGG 压缩', icon: 'OGG', desc: 'Vorbis 96kbps' },
-  { path: '/wav', label: 'WAV 压缩', icon: 'WAV', desc: '22.05kHz 重编码' },
+  { path: '/audio', label: '音频压缩', icon: 'AUD', desc: 'MP3 / OGG / WAV 混合队列' },
+  { path: '/compare', label: '文件对比', icon: 'DIF', desc: '图片/音频/文本差异' },
   { path: '/settings', label: '设置', icon: 'SET', desc: '夜间模式等偏好' }
 ]

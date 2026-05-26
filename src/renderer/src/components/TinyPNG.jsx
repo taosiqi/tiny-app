@@ -12,6 +12,8 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import PropTypes from 'prop-types'
 import ComparePanel from './ComparePanel'
+import CompareFullscreen from './CompareFullscreen'
+import { useToast } from '../toast/useToast'
 import {
   checkTinypngKey,
   compressImage,
@@ -107,6 +109,8 @@ const STATUS_CLASS = {
   success: 'bg-green-100 text-emerald-700',
   skipped: 'bg-yellow-100 text-yellow-700',
   error: 'bg-red-100 text-red-700',
+  paused: 'bg-orange-50 text-orange-600',
+  cancelled: 'bg-stone-100 text-stone-500',
   pending: 'bg-stone-100 text-stone-500'
 }
 
@@ -119,6 +123,7 @@ const KEY_LIMIT = 500
  * @component
  */
 export default function TinyPNG() {
+  const toast = useToast()
   const [keys, setKeys] = useState([{ value: '', status: 'idle', compressionCount: null, error: null }])
   const [keysReady, setKeysReady] = useState(false)
   const [paths, setPaths] = useState([])
@@ -129,6 +134,8 @@ export default function TinyPNG() {
   // paused: null | { remaining: string[] }  —— Key 耗尽暂停时保存未处理文件列表
   const [paused, setPaused] = useState(null)
   const [activeTab, setActiveTab] = useState('log')
+  const [compareFullscreen, setCompareFullscreen] = useState(false)
+  const [logFilter, setLogFilter] = useState('all')
   const [recursive, setRecursive] = useState(true)
   const logRef = useRef(null)
 
@@ -198,16 +205,55 @@ export default function TinyPNG() {
     const keyVal = keys[i].value.trim()
     if (!keyVal) return
     updateKey(i, { status: 'checking', error: null })
-    const result = await checkTinypngKey(keyVal)
-    if (result.valid) {
-      updateKey(i, {
-        status: 'valid',
-        compressionCount: result.compressionCount,
-        error: result.error || null
-      })
-    } else {
-      updateKey(i, { status: 'invalid', error: result.error })
+    try {
+      const result = await checkTinypngKey(keyVal)
+      if (result.valid) {
+        updateKey(i, {
+          status: 'valid',
+          compressionCount: result.compressionCount,
+          error: result.error || null
+        })
+        toast.success(`Key 可用，剩余 ${KEY_LIMIT - result.compressionCount} 次`)
+      } else {
+        updateKey(i, { status: 'invalid', error: result.error })
+        toast.error(result.error || 'Key 校验失败')
+      }
+    } catch (error) {
+      updateKey(i, { status: 'invalid', error: error?.message ?? String(error) })
+      toast.error(`Key 校验失败：${error?.message ?? error}`)
     }
+  }
+
+  const checkAllKeys = async () => {
+    const snapshot = keys.map((k, index) => ({ ...k, index, value: k.value.trim() })).filter((k) => k.value)
+    if (snapshot.length === 0) {
+      toast.warning('请先填写 TinyPNG API Key')
+      return
+    }
+    snapshot.forEach((key) => updateKey(key.index, { status: 'checking', error: null }))
+    const results = await Promise.all(
+      snapshot.map(async (key) => {
+        try {
+          const result = await checkTinypngKey(key.value)
+          if (result.valid) {
+            updateKey(key.index, {
+              status: 'valid',
+              compressionCount: result.compressionCount,
+              error: result.error || null
+            })
+          } else {
+            updateKey(key.index, { status: 'invalid', error: result.error })
+          }
+          return result.valid
+        } catch (error) {
+          updateKey(key.index, { status: 'invalid', error: error?.message ?? String(error) })
+          return false
+        }
+      })
+    )
+    const validCount = results.filter(Boolean).length
+    if (validCount > 0) toast.success(`校验完成：${validCount}/${snapshot.length} 个 Key 可用`)
+    else toast.error('校验完成：没有可用 Key')
   }
 
   const addFiles = async () => {
@@ -216,12 +262,16 @@ export default function TinyPNG() {
     })
     if (files.length > 0) {
       setPaths((prev) => [...new Set([...prev, ...files])])
+      toast.info(`已添加 ${files.length} 个图片文件`)
     }
   }
 
   const addDirectory = async () => {
     const dir = await openDirectory()
-    if (dir) setPaths((prev) => [...new Set([...prev, dir])])
+    if (dir) {
+      setPaths((prev) => [...new Set([...prev, dir])])
+      toast.info('已添加图片目录')
+    }
   }
 
   const removePath = (p) => setPaths((prev) => prev.filter((x) => x !== p))
@@ -234,11 +284,24 @@ export default function TinyPNG() {
    * @param {object}  [opts]
    * @param {boolean} [opts.isRetry=false] 为 true 时，进度结果替换日志中同路径的旧条目而非追加
    */
-  const startCompress = (filesToProcess, { isRetry = false } = {}) => {
+  const startCompress = async (filesToProcess, { isRetry = false } = {}) => {
     const targetFiles = filesToProcess ?? paths
-    const validKeys = keys.map((k) => k.value.trim()).filter(Boolean)
-    if (validKeys.length === 0) return alert('请先填写 TinyPNG API Key')
-    if (targetFiles.length === 0) return alert('请先添加文件或目录')
+    const validKeys = [...keys]
+      .filter((k) => k.value.trim())
+      .sort((a, b) => {
+        const aRemaining = KEY_LIMIT - (a.compressionCount ?? 0)
+        const bRemaining = KEY_LIMIT - (b.compressionCount ?? 0)
+        return bRemaining - aRemaining
+      })
+      .map((k) => k.value.trim())
+    if (validKeys.length === 0) {
+      toast.warning('请先填写 TinyPNG API Key')
+      return
+    }
+    if (targetFiles.length === 0) {
+      toast.warning('请先添加文件或目录')
+      return
+    }
 
     // 全新开始时清空日志；继续/重试时保留已有日志
     if (!filesToProcess) {
@@ -249,6 +312,7 @@ export default function TinyPNG() {
     setPaused(null)
     setTotal(0)
     setRunning(true)
+    toast.info(isRetry ? `正在重试 ${targetFiles.length} 个失败项` : '开始压缩图片')
 
     const cleanTotal = onImageTotal((n) => {
       setTotal(n)
@@ -270,7 +334,16 @@ export default function TinyPNG() {
     })
     const cleanKeyCount = onImageKeyCount(({ key, compressionCount }) => {
       setKeys((prev) =>
-        prev.map((k) => (k.value.trim() === key ? { ...k, status: 'valid', compressionCount } : k))
+        prev.map((k) =>
+          k.value.trim() === key
+            ? {
+                ...k,
+                status: 'valid',
+                compressionCount,
+                error: compressionCount >= KEY_LIMIT ? '当月已达上限' : null
+              }
+            : k
+        )
       )
     })
     const cleanup = () => {
@@ -283,6 +356,7 @@ export default function TinyPNG() {
     const cleanDone = onImageDone((s) => {
       setStats(s)
       setRunning(false)
+      toast.success(`图片压缩完成：成功 ${s.processed}，失败 ${s.failed}，跳过 ${s.skipped}`)
       // 任务完成后清理所有 IPC 监听器，防止泄漏
       cleanup()
     })
@@ -290,14 +364,35 @@ export default function TinyPNG() {
       // Key 全部耗尽：暂停任务，保存剩余文件列表，等待用户添加新 Key 后继续
       setPaused({ remaining })
       setRunning(false)
+      toast.warning(`任务已暂停，剩余 ${remaining.length} 张图片未处理`)
       cleanup()
     })
 
-    compressImage({ paths: targetFiles, apiKeys: validKeys, recursive })
+    try {
+      await compressImage({ paths: targetFiles, apiKeys: validKeys, recursive })
+    } catch (error) {
+      setRunning(false)
+      toast.error(`图片压缩失败：${error?.message ?? error}`)
+      setLogs((prev) => [
+        ...prev,
+        {
+          file: targetFiles[0] ?? '图片压缩任务',
+          status: 'error',
+          error: error?.message ?? String(error)
+        }
+      ])
+      cleanup()
+    }
   }
+
+  const visibleLogs = logs.filter((item) => logFilter === 'all' || item.status === logFilter)
+  const errorLogs = logs.filter((item) => item.status === 'error')
+  const successCount = logs.filter((item) => item.status === 'success').length
+  const skippedCount = logs.filter((item) => item.status === 'skipped').length
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {compareFullscreen && <CompareFullscreen logs={logs} onClose={() => setCompareFullscreen(false)} />}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-7 py-6 gap-4">
         {/* API Keys */}
         <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 p-5 shrink-0">
@@ -314,22 +409,33 @@ export default function TinyPNG() {
               />
               <a
                 href="https://tinify.com/developers"
-                className="ml-1 text-xs font-normal text-emerald-700 underline cursor-pointer"
+                className="interactive-link ml-1 cursor-pointer text-xs font-normal text-emerald-700 underline"
                 onClick={(e) => {
                   e.preventDefault()
-                  openExternal('https://tinify.com/developers')
+                  openExternal('https://tinify.com/developers').catch((error) =>
+                    toast.error(`打开申请页面失败：${error?.message ?? error}`)
+                  )
                 }}
               >
                 申请
               </a>
             </label>
-            <button
-              onClick={addKey}
-              disabled={running}
-              className="text-xs px-2.5 py-1 bg-stone-50 text-stone-600 rounded-2xl hover:bg-stone-100 border border-stone-200 transition-colors disabled:opacity-50"
-            >
-              + 添加 Key
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={checkAllKeys}
+                disabled={running || keys.every((k) => !k.value.trim())}
+                className="interactive-ghost rounded-2xl border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-stone-600 disabled:opacity-50"
+              >
+                校验全部
+              </button>
+              <button
+                onClick={addKey}
+                disabled={running}
+                className="interactive-ghost rounded-2xl border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-stone-600 disabled:opacity-50"
+              >
+                + 添加 Key
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -367,7 +473,7 @@ export default function TinyPNG() {
                     }`}
                     title={`已用 ${k.compressionCount} / ${KEY_LIMIT}`}
                   >
-                    剩余 {KEY_LIMIT - k.compressionCount}
+                    {KEY_LIMIT - k.compressionCount <= 0 ? '已耗尽' : `剩余 ${KEY_LIMIT - k.compressionCount}`}
                   </span>
                 )}
                 {k.status === 'invalid' && (
@@ -383,7 +489,7 @@ export default function TinyPNG() {
                 <button
                   onClick={() => checkKey(i)}
                   disabled={!k.value.trim() || k.status === 'checking' || running}
-                  className="shrink-0 text-xs px-2.5 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-40 transition-colors"
+                  className="interactive-button shrink-0 rounded-2xl bg-sky-100 px-2.5 py-1.5 text-xs text-stone-950 disabled:opacity-40"
                 >
                   {k.status === 'checking' ? '…' : '验证'}
                 </button>
@@ -392,7 +498,7 @@ export default function TinyPNG() {
                 <button
                   onClick={() => removeKey(i)}
                   disabled={running}
-                  className="shrink-0 text-stone-300 hover:text-red-400 text-sm disabled:opacity-30"
+                  className="interactive-danger shrink-0 rounded-full px-1.5 text-sm text-stone-300 disabled:opacity-30"
                 >
                   ✕
                 </button>
@@ -409,14 +515,14 @@ export default function TinyPNG() {
               <button
                 onClick={addFiles}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-50 transition-colors"
+                className="interactive-button rounded-2xl bg-sky-100 px-3 py-1.5 text-xs text-stone-950 disabled:opacity-50"
               >
                 + 添加文件
               </button>
               <button
                 onClick={addDirectory}
                 disabled={running}
-                className="text-xs px-3 py-1.5 bg-sky-100 text-stone-950 rounded-2xl hover:bg-sky-200 disabled:opacity-50 transition-colors"
+                className="interactive-button rounded-2xl bg-sky-100 px-3 py-1.5 text-xs text-stone-950 disabled:opacity-50"
               >
                 + 添加目录
               </button>
@@ -438,7 +544,7 @@ export default function TinyPNG() {
                   <button
                     onClick={() => removePath(p)}
                     disabled={running}
-                    className="text-stone-300 hover:text-red-400 text-xs shrink-0 disabled:opacity-30"
+                    className="interactive-danger shrink-0 rounded-full px-1.5 text-xs text-stone-300 disabled:opacity-30"
                   >
                     ✕
                   </button>
@@ -481,13 +587,16 @@ export default function TinyPNG() {
             <div className="flex gap-3 shrink-0">
               <button
                 onClick={() => startCompress(paused.remaining)}
-                className="flex-1 py-2.5 rounded-2xl text-sm font-semibold bg-sky-100 text-stone-950 hover:bg-sky-200 transition-colors"
+                className="interactive-button flex-1 rounded-2xl bg-sky-100 py-2.5 text-sm font-semibold text-stone-950"
               >
                 ▶ 继续压缩（{paused.remaining.length} 张）
               </button>
               <button
-                onClick={() => setPaused(null)}
-                className="px-4 py-2.5 rounded-2xl text-sm text-stone-500 hover:text-red-500 border border-stone-200 hover:border-red-200 transition-colors"
+                onClick={() => {
+                  setPaused(null)
+                  toast.info('已放弃剩余图片任务')
+                }}
+                className="interactive-danger rounded-2xl border border-stone-200 px-4 py-2.5 text-sm text-stone-500"
               >
                 放弃
               </button>
@@ -495,8 +604,11 @@ export default function TinyPNG() {
           </>
         ) : running ? (
           <button
-            onClick={() => stopImageCompression()}
-            className="w-full py-2.5 rounded-2xl text-sm font-semibold transition-colors shrink-0 bg-yellow-500 text-white hover:bg-yellow-600"
+            onClick={() => {
+              toast.info('正在暂停图片压缩')
+              stopImageCompression().catch((error) => toast.error(`暂停失败：${error?.message ?? error}`))
+            }}
+            className="w-full shrink-0 rounded-2xl bg-yellow-500 py-2.5 text-sm font-semibold text-white hover:bg-yellow-600"
           >
             ⏸ 暂停 ({logs.length}/{total})
           </button>
@@ -504,7 +616,7 @@ export default function TinyPNG() {
           <button
             onClick={() => startCompress()}
             disabled={running}
-            className="w-full py-2.5 rounded-2xl text-sm font-semibold transition-colors shrink-0 bg-sky-100 text-stone-950 hover:bg-sky-200"
+            className="interactive-button w-full shrink-0 rounded-2xl bg-sky-100 py-2.5 text-sm font-semibold text-stone-950"
           >
             🚀 开始压缩
           </button>
@@ -539,10 +651,10 @@ export default function TinyPNG() {
               <div className="flex gap-0.5">
                 <button
                   onClick={() => setActiveTab('log')}
-                  className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
+                  className={`rounded-2xl px-3 py-1.5 text-xs ${
                     activeTab === 'log'
                       ? 'tab-active font-medium'
-                      : 'text-stone-400 hover:text-stone-600'
+                      : 'interactive-ghost text-stone-400'
                   }`}
                 >
                   处理日志
@@ -550,43 +662,85 @@ export default function TinyPNG() {
                 {stats && (
                   <button
                     onClick={() => setActiveTab('compare')}
-                    className={`text-xs px-3 py-1.5 rounded-2xl transition-colors ${
+                    className={`rounded-2xl px-3 py-1.5 text-xs ${
                       activeTab === 'compare'
                         ? 'tab-active font-medium'
-                        : 'text-stone-400 hover:text-emerald-700'
+                        : 'interactive-ghost text-stone-400'
                     }`}
                   >
                     压缩对比
                     {logs.filter((l) => l.status === 'success').length > 0 && (
-                      <span className="ml-1 bg-sky-100 text-stone-950 rounded-full px-1.5 py-0.5 text-[10px]">
+                      <span className="compare-count-badge ml-1">
                         {logs.filter((l) => l.status === 'success').length}
                       </span>
                     )}
                   </button>
                 )}
+                {successCount > 0 && (
+                  <button
+                    type="button"
+                    title="全屏对比"
+                    onClick={() => setCompareFullscreen(true)}
+                    className="interactive-ghost compare-fullscreen-button rounded-2xl px-3 py-1.5 text-sm font-semibold text-stone-400"
+                  >
+                    ⛶
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-3">
-                {activeTab === 'log' && !running && logs.some((l) => l.status === 'error') && (
+                {activeTab === 'log' && (
+                  <div className="flex gap-1">
+                    {[
+                      ['all', `全部 ${logs.length}`],
+                      ['success', `成功 ${successCount}`],
+                      ['skipped', `跳过 ${skippedCount}`],
+                      ['error', `失败 ${errorLogs.length}`]
+                    ].map(([id, label]) => (
+                      <button
+                        key={id}
+                        onClick={() => setLogFilter(id)}
+                        className={`rounded-2xl px-2 py-0.5 text-xs ${
+                          logFilter === id ? 'tab-active font-medium' : 'interactive-ghost text-stone-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {activeTab === 'log' && !running && errorLogs.length > 0 && (
                   <button
                     onClick={() =>
                       startCompress(
-                        logs.filter((l) => l.status === 'error').map((l) => l.file),
+                        errorLogs.map((l) => l.file),
                         { isRetry: true }
                       )
                     }
-                    className="text-xs px-2 py-0.5 rounded bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                    className="interactive-danger rounded bg-red-50 px-2 py-0.5 text-xs text-red-500"
                   >
-                    重试失败 ({logs.filter((l) => l.status === 'error').length})
+                    重试失败 ({errorLogs.length})
+                  </button>
+                )}
+                {activeTab === 'log' && !running && logs.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setLogs([])
+                      setStats(null)
+                      toast.info('已清空图片处理日志')
+                    }}
+                    className="interactive-ghost rounded bg-stone-100 px-2 py-0.5 text-xs text-stone-500"
+                  >
+                    清空日志
                   </button>
                 )}
                 <span className="text-xs text-stone-400">
-                  {logs.length} / {total}
+                  {visibleLogs.length} / {total || logs.length}
                 </span>
               </div>
             </div>
             {activeTab === 'log' ? (
               <ul ref={logRef} className="flex-1 overflow-y-auto divide-y divide-stone-100">
-                {logs.map((item, i) => (
+                {visibleLogs.map((item, i) => (
                   <li key={i} className="flex items-center gap-2 px-4 py-1.5">
                     <span
                       className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CLASS[item.status] || STATUS_CLASS.pending}`}
@@ -595,7 +749,11 @@ export default function TinyPNG() {
                         ? '✓ 压缩'
                         : item.status === 'skipped'
                           ? '— 跳过'
-                          : '✗ 失败'}
+                          : item.status === 'paused'
+                            ? '暂停'
+                            : item.status === 'cancelled'
+                              ? '取消'
+                              : '✗ 失败'}
                     </span>
                     <span
                       className="flex-1 truncate text-xs text-stone-600 font-mono"
@@ -609,6 +767,9 @@ export default function TinyPNG() {
                         <span className="text-emerald-500">(-{item.saved})</span>
                       </span>
                     )}
+                    {item.status === 'skipped' && (
+                      <span className="text-xs text-yellow-600 shrink-0">{item.reason}</span>
+                    )}
                     {item.status === 'error' && (
                       <>
                         <span
@@ -620,7 +781,7 @@ export default function TinyPNG() {
                         <button
                           onClick={() => startCompress([item.file], { isRetry: true })}
                           disabled={running}
-                          className="shrink-0 text-xs px-1.5 py-0.5 rounded bg-red-50 text-red-400 hover:bg-red-100 disabled:opacity-30 transition-colors"
+                          className="interactive-danger shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-400 disabled:opacity-30"
                           title="重试"
                         >
                           ↺

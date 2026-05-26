@@ -1,8 +1,19 @@
 import { CLOSE_BEHAVIOR_OPTIONS, NIGHT_MODE_OPTIONS } from '../settings/themeOptions'
 import { useSettings } from '../settings/useSettings'
+import { useToast } from '../toast/useToast'
 
 export default function Settings() {
   const { settings, ready, saveSettings } = useSettings()
+  const toast = useToast()
+
+  const saveWithToast = async (patch, message) => {
+    try {
+      await saveSettings(patch)
+      toast.success(message)
+    } catch (error) {
+      toast.error(`保存失败：${error?.message ?? error}`)
+    }
+  }
 
   return (
     <div className="h-full overflow-y-auto px-7 py-6">
@@ -21,11 +32,11 @@ export default function Settings() {
                   key={option.id}
                   type="button"
                   disabled={!ready}
-                  onClick={() => saveSettings({ nightMode: option.id })}
+                  onClick={() => saveWithToast({ nightMode: option.id }, `已切换为${option.name}`)}
                   className={`rounded-2xl border p-3 text-left transition-all ${
                     active
                       ? 'choice-active'
-                      : 'border-stone-200 bg-white/70 text-stone-600 hover:-translate-y-0.5 hover:border-stone-300 hover:text-stone-950'
+                      : 'interactive-row border-stone-200 bg-white/70 text-stone-600 hover:-translate-y-0.5'
                   }`}
                 >
                   <span className="block text-sm font-black">{option.name}</span>
@@ -52,11 +63,11 @@ export default function Settings() {
                   key={option.id}
                   type="button"
                   disabled={!ready}
-                  onClick={() => saveSettings({ closeBehavior: option.id })}
+                  onClick={() => saveWithToast({ closeBehavior: option.id }, `退出行为已设为${option.name}`)}
                   className={`rounded-2xl border p-4 text-left transition-all ${
                     active
                       ? 'choice-active'
-                      : 'border-stone-200 bg-white/70 text-stone-600 hover:-translate-y-0.5 hover:border-stone-300 hover:text-stone-950'
+                      : 'interactive-row border-stone-200 bg-white/70 text-stone-600 hover:-translate-y-0.5'
                   }`}
                 >
                   <span className="block text-sm font-black">{option.name}</span>

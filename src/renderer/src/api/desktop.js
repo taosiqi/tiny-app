@@ -16,9 +16,7 @@ function subscribe(channel, cb) {
 }
 
 function runCommand(command, payload) {
-  invoke(command, payload).catch((error) => {
-    console.error(`[tauri] ${command} failed`, error)
-  })
+  return invoke(command, payload)
 }
 
 export async function openFiles(options = {}) {
@@ -48,6 +46,11 @@ export const checkTinypngKey = (apiKey) => invoke('check_tinypng_key', { apiKey 
 export const compressImage = (payload) => runCommand('compress_image', { payload })
 export const stopImageCompression = () => invoke('stop_image_compression')
 export const compressAudio = (payload) => runCommand('compress_audio', { payload })
+export const stopAudioCompression = () => invoke('stop_audio_compression')
+export const getBackupStatus = (payload) => invoke('get_backup_status', { payload })
+export const getFileMetadata = (filePath) => invoke('get_file_metadata', { filePath })
+export const compareFiles = (leftPath, rightPath) =>
+  invoke('compare_files', { payload: { leftPath, rightPath } })
 export const restoreFile = (backupPath, originalPath) =>
   invoke('restore_file', { payload: { backupPath, originalPath } })
 export const openInFinder = (filePath) => invoke('open_in_finder', { filePath })
@@ -60,4 +63,5 @@ export const onImagePaused = (cb) => subscribe('compress:image:paused', cb)
 export const onAudioTotal = (cb) => subscribe('compress:audio:total', cb)
 export const onAudioProgress = (cb) => subscribe('compress:audio:progress', cb)
 export const onAudioDone = (cb) => subscribe('compress:audio:done', cb)
+export const onAudioPaused = (cb) => subscribe('compress:audio:paused', cb)
 export const onOpenSettings = (cb) => subscribe('app:navigate-settings', cb)

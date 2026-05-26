@@ -1,88 +1,106 @@
 /**
  * @file ComparePanel.jsx
- * @description 压缩前后对比面板
- *
- * 展示每个成功压缩文件的原始备份与压缩后文件的大小对比。
- * 图片类文件额外展示缩略图。支持一键还原至备份版本。
- * 点击缩略图可弹窗全屏对比。
+ * @description 压缩前后对比面板，支持图片、音频、备份状态、排序与还原。
  */
-import { useState, useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import PropTypes from 'prop-types'
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch'
+import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { basename, isImage } from '../utils/fileUtils'
-import { openInFinder, restoreFile } from '../api/desktop'
+import { basename, formatTimestamp, isAudio, isImage } from '../utils/fileUtils'
+import { getBackupStatus, getFileMetadata, openInFinder, restoreFile } from '../api/desktop'
+import { useToast } from '../toast/useToast'
 
-/** 将本地绝对路径转为 Tauri asset URL（兼容 Mac/Windows） */
 function toLocalURL(filePath) {
-  if (!filePath) return ''
-  return convertFileSrc(filePath)
+  return filePath ? convertFileSrc(filePath) : ''
 }
 
-/** 本地图片展示 */
 function LocalImage({ filePath, className, alt }) {
   if (!filePath) return null
   return <img src={toLocalURL(filePath)} className={className} alt={alt} />
 }
+
 LocalImage.propTypes = {
   filePath: PropTypes.string,
   className: PropTypes.string,
   alt: PropTypes.string
 }
 
-/** 本地音频播放器：Tauri asset 协议，支持 seek */
 function LocalAudio({ filePath }) {
   if (!filePath) return null
-  return (
-    <audio controls src={toLocalURL(filePath)} className="w-full h-8" style={{ outline: 'none' }} />
-  )
-}
-LocalAudio.propTypes = {
-  filePath: PropTypes.string
+  return <audio controls src={toLocalURL(filePath)} className="h-8 w-full" />
 }
 
-/**
- * 大小进度条：蓝色填充区域表示压缩后的相对大小 */
-SizeBar.propTypes = {
-  inputBytes: PropTypes.number,
-  outputBytes: PropTypes.number
-}
+LocalAudio.propTypes = { filePath: PropTypes.string }
+
 function SizeBar({ inputBytes, outputBytes }) {
   if (!inputBytes || !outputBytes || inputBytes === 0) return null
-  const pct = Math.round((outputBytes / inputBytes) * 100)
+  const pct = Math.min(100, Math.round((outputBytes / inputBytes) * 100))
   const saved = (((inputBytes - outputBytes) / inputBytes) * 100).toFixed(1)
   return (
-    <div className="flex items-center gap-2 mt-2">
-      <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-sky-400 rounded-full transition-all"
-          style={{ width: `${pct}%` }}
-        />
+    <div className="mt-2 flex items-center gap-2">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-stone-100">
+        <div className="h-full rounded-full bg-sky-400" style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs font-semibold text-emerald-600 w-12 text-right shrink-0 tabular-nums">
+      <span className="w-14 shrink-0 text-right text-xs font-semibold tabular-nums text-emerald-600">
         -{saved}%
       </span>
     </div>
   )
 }
 
-/**
- * 图片对比弹窗
- */
-ImageCompareModal.propTypes = {
-  item: PropTypes.shape({
-    file: PropTypes.string,
-    backupPath: PropTypes.string,
-    inputSize: PropTypes.string,
-    outputSize: PropTypes.string,
-    saved: PropTypes.string
-  }),
-  onClose: PropTypes.func.isRequired
+SizeBar.propTypes = {
+  inputBytes: PropTypes.number,
+  outputBytes: PropTypes.number
 }
+
+function ImageSlider({ original, current, height = 'h-40' }) {
+  const [position, setPosition] = useState(50)
+
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border border-stone-200 bg-white ${height}`}>
+      <div className="absolute left-3 top-3 z-20 rounded-full bg-stone-950/70 px-2.5 py-1 text-[10px] font-semibold text-white">
+        原始备份
+      </div>
+      <div className="absolute right-3 top-3 z-20 rounded-full bg-emerald-700/80 px-2.5 py-1 text-[10px] font-semibold text-white">
+        压缩后
+      </div>
+      <LocalImage filePath={current} className="h-full w-full object-contain" alt="compressed" />
+      <div className="absolute inset-y-0 left-0 overflow-hidden bg-white" style={{ width: `${position}%` }}>
+        <div className="h-full" style={{ width: `${10000 / Math.max(position, 1)}%` }}>
+          <LocalImage filePath={original} className="h-full w-full object-contain" alt="original" />
+        </div>
+      </div>
+      <div
+        className="pointer-events-none absolute inset-y-0 z-10 w-0.5 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+        style={{ left: `${position}%` }}
+      >
+        <div className="absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-[var(--theme-accent)] shadow-lg" />
+      </div>
+      <input
+        type="range"
+        min="0"
+        max="100"
+        value={position}
+        onChange={(event) => setPosition(Number(event.target.value))}
+        className="absolute inset-x-4 bottom-3 accent-[var(--theme-accent)]"
+        aria-label="图片对比滑块"
+      />
+    </div>
+  )
+}
+
+ImageSlider.propTypes = {
+  original: PropTypes.string,
+  current: PropTypes.string,
+  height: PropTypes.string
+}
+
 function ImageCompareModal({ item, onClose }) {
+  const [mode, setMode] = useState('side')
+
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'Escape') onClose()
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -91,114 +109,436 @@ function ImageCompareModal({ item, onClose }) {
   if (!item) return null
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.75)' }}
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl flex flex-col"
-        style={{ maxWidth: '90vw', maxHeight: '90vh', width: '860px' }}
-        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[90vh] w-[900px] max-w-[92vw] flex-col rounded-2xl bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
       >
-        {/* 标题栏 */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100">
-          <span
-            className="text-sm font-semibold text-stone-700 font-mono truncate max-w-xs"
-            title={item.file}
-          >
-            🖼 {basename(item.file)}
+        <div className="flex items-center justify-between border-b border-stone-100 px-5 py-3">
+          <span className="max-w-md truncate font-mono text-sm font-semibold text-stone-700" title={item.file}>
+            {basename(item.file)}
           </span>
-          <button
-            onClick={onClose}
-            className="text-stone-400 hover:text-stone-700 text-xl leading-none ml-4 transition-colors"
-            title="关闭"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMode(mode === 'side' ? 'slider' : 'side')}
+              className="interactive-ghost rounded-2xl bg-stone-100 px-3 py-1 text-xs font-medium text-stone-600"
+            >
+              {mode === 'side' ? '滑块对比' : '并排对比'}
+            </button>
+            <button onClick={onClose} className="interactive-ghost rounded-full px-2 text-xl leading-none text-stone-400">
+              ×
+            </button>
+          </div>
         </div>
 
-        {/* 图片对比区域 */}
-        <div className="flex gap-0 flex-1 min-h-0 overflow-hidden rounded-b-2xl">
-          {/* 原始 */}
-          <div className="flex-1 flex flex-col items-center bg-stone-50 px-6 py-5 min-w-0 overflow-hidden">
-            <div className="text-xs font-medium text-stone-500 mb-3">原始备份</div>
-            <div
-              className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden"
-              style={{ maxHeight: 'calc(90vh - 160px)' }}
-            >
-              <TransformWrapper>
-                <TransformComponent
-                  wrapperClass="!w-full !h-full"
-                  contentClass="!w-full !h-full flex items-center justify-center"
-                >
-                  <img
-                    src={toLocalURL(item.backupPath)}
-                    alt="original"
-                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                  />
-                </TransformComponent>
-              </TransformWrapper>
-            </div>
-            <div className="text-xs text-stone-500 mt-3 tabular-nums font-medium">
-              {item.inputSize}
-            </div>
+        {mode === 'slider' ? (
+          <div className="p-5">
+            <ImageSlider original={item.backupPath} current={item.file} height="h-[68vh]" />
           </div>
-
-          {/* 分隔线 + 箭头 */}
-          <div className="flex flex-col items-center justify-center px-3 bg-white shrink-0 z-10 relative">
-            <div className="text-stone-300 text-2xl select-none">→</div>
+        ) : (
+          <div className="grid min-h-0 flex-1 grid-cols-2 overflow-hidden rounded-b-2xl">
+            {[
+              { label: '原始备份', file: item.backupPath, size: item.inputSize },
+              { label: '压缩后', file: item.file, size: item.outputSize }
+            ].map(({ label, file, size }) => (
+              <div key={label} className="flex min-w-0 flex-col bg-stone-50 px-5 py-4">
+                <div className="mb-3 text-center text-xs font-medium text-stone-500">{label}</div>
+                <div className="min-h-0 flex-1">
+                  <TransformWrapper>
+                    <TransformComponent
+                      wrapperClass="!w-full !h-full"
+                      contentClass="!w-full !h-full flex items-center justify-center"
+                    >
+                      <LocalImage filePath={file} className="max-h-full max-w-full object-contain" alt={label} />
+                    </TransformComponent>
+                  </TransformWrapper>
+                </div>
+                <div className="mt-3 text-center text-xs font-medium tabular-nums text-stone-500">{size}</div>
+              </div>
+            ))}
           </div>
-
-          {/* 压缩后 */}
-          <div className="flex-1 flex flex-col items-center bg-sky-100 px-6 py-5 min-w-0 overflow-hidden">
-            <div className="text-xs font-medium text-emerald-700 mb-3">压缩后</div>
-            <div
-              className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden"
-              style={{ maxHeight: 'calc(90vh - 160px)' }}
-            >
-              <TransformWrapper>
-                <TransformComponent
-                  wrapperClass="!w-full !h-full"
-                  contentClass="!w-full !h-full flex items-center justify-center"
-                >
-                  <img
-                    src={toLocalURL(item.file)}
-                    alt="compressed"
-                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                  />
-                </TransformComponent>
-              </TransformWrapper>
-            </div>
-            <div className="flex items-center gap-2 mt-3">
-              <span className="text-xs text-stone-950 tabular-nums font-medium">
-                {item.outputSize}
-              </span>
-              {item.saved && (
-                <span className="text-xs bg-green-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
-                  节省 {item.saved}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )
 }
 
-/**
- * 压缩对比面板
- *
- * @component
- * @param {Array} logs - 压缩进度日志列表（含 backupPath、inputBytes、outputBytes 字段）
- */
+ImageCompareModal.propTypes = {
+  item: PropTypes.object,
+  onClose: PropTypes.func.isRequired
+}
+
+function MetadataGrid({ metadata }) {
+  if (!metadata) return null
+  const rows = [
+    ['大小', metadata.size],
+    ['修改时间', formatTimestamp(metadata.modified)],
+    ['尺寸', metadata.image?.width && metadata.image?.height ? `${metadata.image.width} × ${metadata.image.height}` : null],
+    ['时长', metadata.audio?.duration],
+    ['编码', metadata.audio?.codec],
+    ['采样率', metadata.audio?.sampleRate],
+    ['声道', metadata.audio?.channels],
+    ['码率', metadata.audio?.bitrate]
+  ].filter(([, value]) => value)
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="mt-3 grid gap-2 text-[11px] text-stone-500 sm:grid-cols-2">
+      {rows.map(([label, value]) => (
+        <span key={label} className="truncate rounded-xl bg-white/70 px-2 py-1">
+          {label}：<span className="font-medium text-stone-700">{value}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+MetadataGrid.propTypes = { metadata: PropTypes.object }
+
+function ImageCompareView({ item, fullscreen = false }) {
+  const [mode, setMode] = useState('side')
+  const imageHeight = fullscreen ? 'h-[58vh]' : 'h-[46vh]'
+  const imageMinHeight = fullscreen ? 'min-h-[58vh]' : 'min-h-[46vh]'
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-xs text-stone-500">
+          {item.inputSize} → {item.outputSize}，节省{' '}
+          <span className="font-semibold text-emerald-600">{item.saved}</span>
+        </div>
+        <button
+          onClick={() => setMode(mode === 'side' ? 'slider' : 'side')}
+          className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs font-medium text-stone-600"
+        >
+          {mode === 'side' ? '切换滑块对比' : '切换并排对比'}
+        </button>
+      </div>
+      {mode === 'slider' ? (
+        <ImageSlider original={item.backupPath} current={item.file} height={imageHeight} />
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {[
+            { label: '原始备份', file: item.backupPath, size: item.inputSize },
+            { label: '压缩后', file: item.file, size: item.outputSize }
+          ].map(({ label, file, size }) => (
+            <div key={label} className={`flex ${imageMinHeight} min-w-0 flex-col rounded-2xl border border-stone-200 bg-white p-3`}>
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <span className="font-medium text-stone-600">{label}</span>
+                <span className="tabular-nums text-stone-400">{size}</span>
+              </div>
+              <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-stone-50">
+                <LocalImage filePath={file} className="max-h-full max-w-full object-contain" alt={label} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+ImageCompareView.propTypes = {
+  item: PropTypes.object.isRequired,
+  fullscreen: PropTypes.bool
+}
+
+export default function ComparePanel({ logs, fullscreen = false }) {
+  const toast = useToast()
+  const [restoredSet, setRestoredSet] = useState(new Set())
+  const [loadingSet, setLoadingSet] = useState(new Set())
+  const [modalItem, setModalItem] = useState(null)
+  const [sortBy, setSortBy] = useState('saved')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [selectedFile, setSelectedFile] = useState('')
+  const [details, setDetails] = useState({})
+
+  const successItems = useMemo(() => logs.filter((item) => item.status === 'success' && item.backupPath), [logs])
+
+  useEffect(() => {
+    let active = true
+    const missing = successItems.filter((item) => !details[item.file])
+    if (missing.length === 0) return undefined
+
+    Promise.all(
+      missing.map(async (item) => {
+        const [backupStatus, originalMeta, currentMeta] = await Promise.all([
+          getBackupStatus({ originalPath: item.file, backupPath: item.backupPath }),
+          getFileMetadata(item.backupPath),
+          getFileMetadata(item.file)
+        ])
+        return [item.file, { backupStatus, originalMeta, currentMeta }]
+      })
+    )
+      .then((entries) => {
+        if (!active) return
+        setDetails((prev) => ({ ...prev, ...Object.fromEntries(entries) }))
+      })
+      .catch((error) => console.error('[compare] failed to load metadata', error))
+
+    return () => {
+      active = false
+    }
+  }, [details, successItems])
+
+  const items = useMemo(() => {
+    const filtered = successItems.filter((item) => {
+      if (typeFilter === 'image') return isImage(item.file)
+      if (typeFilter === 'audio') return isAudio(item.file)
+      return true
+    })
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'name') return basename(a.file).localeCompare(basename(b.file), 'zh-CN')
+      return (b.inputBytes - b.outputBytes) - (a.inputBytes - a.outputBytes)
+    })
+  }, [sortBy, successItems, typeFilter])
+
+  useEffect(() => {
+    if (items.length === 0) {
+      setSelectedFile('')
+      return
+    }
+    if (!items.some((item) => item.file === selectedFile)) {
+      setSelectedFile(items[0].file)
+    }
+  }, [items, selectedFile])
+
+  const selected = items.find((item) => item.file === selectedFile) ?? items[0]
+
+  const copyPath = useCallback(
+    async (path) => {
+      try {
+        await navigator.clipboard?.writeText(path)
+        toast.success('路径已复制')
+      } catch (error) {
+        toast.error(`复制失败：${error?.message ?? error}`)
+      }
+    },
+    [toast]
+  )
+
+  const openSelectedLocation = useCallback(
+    async (path) => {
+      try {
+        await openInFinder(path)
+        toast.info('已打开文件位置')
+      } catch (error) {
+        toast.error(`打开位置失败：${error?.message ?? error}`)
+      }
+    },
+    [toast]
+  )
+
+  const restore = useCallback(
+    async (item) => {
+      if (loadingSet.has(item.file)) return
+      const ok = window.confirm(`确认将备份还原到当前文件？\n${item.file}`)
+      if (!ok) return
+      setLoadingSet((set) => new Set([...set, item.file]))
+      try {
+        await restoreFile(item.backupPath, item.file)
+        setRestoredSet((set) => new Set([...set, item.file]))
+        const [backupStatus, currentMeta] = await Promise.all([
+          getBackupStatus({ originalPath: item.file, backupPath: item.backupPath }),
+          getFileMetadata(item.file)
+        ])
+        setDetails((prev) => ({
+          ...prev,
+          [item.file]: { ...prev[item.file], backupStatus, currentMeta }
+        }))
+        toast.success('已还原原始文件')
+      } catch (error) {
+        toast.error(`还原失败：${error?.message ?? error}`)
+      } finally {
+        setLoadingSet((set) => {
+          const next = new Set(set)
+          next.delete(item.file)
+          return next
+        })
+      }
+    },
+    [loadingSet, toast]
+  )
+
+  if (successItems.length === 0) {
+    return <div className="py-10 text-center text-sm text-stone-400">没有可对比的文件</div>
+  }
+
+  const selectedDetails = selected ? details[selected.file] : null
+  const backupStatus = selectedDetails?.backupStatus
+  const backupExists = backupStatus?.backupExists !== false
+  const isRestored = selected ? restoredSet.has(selected.file) : false
+  const isLoading = selected ? loadingSet.has(selected.file) : false
+  const selectedIsImage = selected ? isImage(selected.file) : false
+  const selectedIsAudio = selected ? isAudio(selected.file) : false
+
+  return (
+    <div className={fullscreen ? 'flex h-full min-h-0 flex-col' : undefined}>
+      {modalItem && <ImageCompareModal item={modalItem} onClose={() => setModalItem(null)} />}
+      <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-1">
+          {[
+            ['all', '全部'],
+            ['image', '图片'],
+            ['audio', '音频']
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTypeFilter(id)}
+              className={`rounded-2xl px-3 py-1.5 text-xs ${typeFilter === id ? 'tab-active font-medium' : 'interactive-ghost text-stone-400'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          {[
+            ['saved', '节省体积'],
+            ['name', '文件名']
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setSortBy(id)}
+              className={`rounded-2xl px-3 py-1.5 text-xs ${sortBy === id ? 'tab-active font-medium' : 'interactive-ghost text-stone-400'}`}
+            >
+              按{label}排序
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className={`grid gap-4 ${
+          fullscreen
+            ? 'min-h-0 flex-1 overflow-hidden xl:grid-cols-[22rem_1fr]'
+            : 'min-h-[58vh] xl:grid-cols-[18rem_1fr]'
+        }`}
+      >
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-stone-100 bg-stone-50">
+          <div className="shrink-0 border-b border-stone-100 px-3 py-2 text-xs font-semibold text-stone-500">
+            成功记录 {items.length}
+          </div>
+          <div className={`${fullscreen ? 'min-h-0 flex-1 p-2 pb-8' : 'max-h-[58vh] p-2'} overflow-y-auto`}>
+            {items.map((item) => {
+              const active = selected?.file === item.file
+              return (
+                <button
+                  key={item.file}
+                  onClick={() => setSelectedFile(item.file)}
+                  className={`interactive-row compare-record-item mb-1 w-full rounded-xl border px-3 py-2 text-left ${
+                    active ? 'choice-active' : 'border-transparent hover:border-stone-200 hover:bg-white/70'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-[10px] font-black text-stone-400">
+                      {item.format?.toUpperCase() ?? (isImage(item.file) ? 'IMG' : isAudio(item.file) ? 'AUD' : 'FILE')}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-stone-700">
+                      {basename(item.file)}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-stone-500">
+                    <span>{item.outputSize}</span>
+                    <span className="font-semibold text-emerald-600">-{item.saved}</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </aside>
+
+        {selected && (
+          <section className={`${fullscreen ? 'min-h-0 overflow-y-auto p-4 pb-12' : 'p-4'} min-w-0 rounded-2xl border border-stone-100 bg-stone-50`}>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-black text-stone-500">
+                    {selected.format?.toUpperCase() ?? (selectedIsImage ? 'IMG' : selectedIsAudio ? 'AUD' : 'FILE')}
+                  </span>
+                  <h3 className="truncate font-mono text-sm font-bold text-stone-800" title={selected.file}>
+                    {basename(selected.file)}
+                  </h3>
+                </div>
+                <div className="mt-1 text-xs text-stone-500">
+                  {selected.inputSize} → {selected.outputSize}，节省{' '}
+                  <span className="font-semibold text-emerald-600">{selected.saved}</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => copyPath(selected.file)} className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500">
+                  复制路径
+                </button>
+                <button onClick={() => openSelectedLocation(selected.file)} className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500">
+                  打开位置
+                </button>
+                {selectedIsImage && (
+                  <button onClick={() => setModalItem(selected)} className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500">
+                    放大
+                  </button>
+                )}
+                <button
+                  onClick={() => restore(selected)}
+                  disabled={isRestored || isLoading || !backupExists}
+                  className={`rounded-2xl px-3 py-1.5 text-xs font-medium ${
+                    isRestored
+                      ? 'bg-stone-100 text-stone-400'
+                      : backupExists
+                        ? 'interactive-danger bg-red-50 text-red-500'
+                        : 'bg-stone-100 text-stone-400'
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                >
+                  {isLoading ? '还原中' : isRestored ? '已还原' : backupExists ? '还原' : '备份缺失'}
+                </button>
+              </div>
+            </div>
+
+            {selectedIsImage && <ImageCompareView item={selected} fullscreen={fullscreen} />}
+
+            {selectedIsAudio && (
+              <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr]">
+                <div>
+                  <div className="mb-1 text-center text-xs text-stone-400">原始备份</div>
+                  <div className="rounded-2xl border border-stone-200 bg-white px-3 py-2">
+                    <LocalAudio filePath={selected.backupPath} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-center text-stone-300">→</div>
+                <div>
+                  <div className="mb-1 text-center text-xs text-emerald-700">压缩后</div>
+                  <div className="rounded-2xl border border-sky-200 bg-white px-3 py-2">
+                    <LocalAudio filePath={selected.file} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <MetadataGrid metadata={selectedDetails?.originalMeta} />
+              <MetadataGrid metadata={selectedDetails?.currentMeta} />
+            </div>
+            <SizeBar inputBytes={selected.inputBytes} outputBytes={selected.outputBytes} />
+            {backupStatus && (
+              <div className="mt-3 rounded-2xl bg-white/70 px-3 py-2 text-xs text-stone-500">
+                备份：{backupStatus.backupExists ? backupStatus.backupSize : '缺失'} · 当前：
+                {backupStatus.originalExists ? backupStatus.originalSize : '缺失'} ·{' '}
+                {formatTimestamp(backupStatus.backupModified)}
+              </div>
+            )}
+          </section>
+        )}
+      </div>
+    </div>
+  )
+}
+
 ComparePanel.propTypes = {
   logs: PropTypes.arrayOf(
     PropTypes.shape({
       status: PropTypes.string,
       file: PropTypes.string,
       backupPath: PropTypes.string,
+      format: PropTypes.string,
       inputBytes: PropTypes.number,
       outputBytes: PropTypes.number,
       inputSize: PropTypes.string,
@@ -206,178 +546,6 @@ ComparePanel.propTypes = {
       saved: PropTypes.string,
       error: PropTypes.string
     })
-  ).isRequired
-}
-export default function ComparePanel({ logs }) {
-  const [restoredSet, setRestoredSet] = useState(new Set())
-  const [loadingSet, setLoadingSet] = useState(new Set())
-  const [modalItem, setModalItem] = useState(null)
-
-  const successItems = logs.filter((l) => l.status === 'success' && l.backupPath)
-
-  const restore = useCallback(
-    async (item) => {
-      if (loadingSet.has(item.file)) return
-      setLoadingSet((s) => new Set([...s, item.file]))
-      try {
-        await restoreFile(item.backupPath, item.file)
-        setRestoredSet((s) => new Set([...s, item.file]))
-      } catch (e) {
-        alert('还原失败：' + e.message)
-      } finally {
-        setLoadingSet((s) => {
-          const n = new Set(s)
-          n.delete(item.file)
-          return n
-        })
-      }
-    },
-    [loadingSet]
-  )
-
-  const openDir = useCallback((item) => {
-    openInFinder(item.backupPath)
-  }, [])
-
-  if (successItems.length === 0) {
-    return <div className="text-center py-10 text-stone-400 text-sm">没有可对比的文件</div>
-  }
-
-  return (
-    <>
-      {modalItem && <ImageCompareModal item={modalItem} onClose={() => setModalItem(null)} />}
-      <div className="space-y-3">
-        {successItems.map((item, i) => {
-          const img = isImage(item.file)
-          const isRestored = restoredSet.has(item.file)
-          const isLoading = loadingSet.has(item.file)
-
-          return (
-            <div key={i} className="border border-stone-100 rounded-2xl p-4 bg-stone-50">
-              {/* 文件名行 */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-sm shrink-0">{img ? '🖼' : '🎵'}</span>
-                <span
-                  className="flex-1 truncate text-xs text-stone-700 font-mono font-medium"
-                  title={item.file}
-                >
-                  {basename(item.file)}
-                </span>
-                <button
-                  onClick={() => openDir(item)}
-                  title="在文件管理器中查看备份"
-                  className="shrink-0 text-stone-300 hover:text-emerald-600 text-sm transition-colors"
-                >
-                  📂
-                </button>
-                <button
-                  onClick={() => restore(item)}
-                  disabled={isRestored || isLoading}
-                  className={`shrink-0 text-xs px-2.5 py-1 rounded-2xl font-medium transition-colors ${
-                    isRestored
-                      ? 'bg-stone-100 text-stone-400 cursor-default'
-                      : 'bg-red-50 text-red-500 hover:bg-red-100'
-                  } disabled:opacity-60`}
-                >
-                  {isLoading ? '…' : isRestored ? '✓ 已还原' : '还原'}
-                </button>
-              </div>
-
-              {/* 图片缩略图对比（点击放大） */}
-              {img && (
-                <div
-                  className="flex gap-3 mb-1 cursor-zoom-in group relative"
-                  onClick={() => setModalItem(item)}
-                  title="点击放大对比"
-                >
-                  {/* 悬停提示 */}
-                  <div className="absolute inset-0 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                    <span className="bg-black/50 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-sm">
-                      🔍 点击放大对比
-                    </span>
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-stone-400 mb-1 text-center">原始备份</div>
-                    <div className="h-32 rounded-2xl bg-white border border-stone-200 overflow-hidden flex items-center justify-center group-hover:border-stone-300 transition-colors">
-                      <LocalImage
-                        filePath={item.backupPath}
-                        className="max-h-full max-w-full object-contain"
-                        alt="original"
-                      />
-                    </div>
-                    <div className="text-[10px] text-stone-500 mt-1 text-center tabular-nums">
-                      {item.inputSize}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-center text-stone-300 text-lg shrink-0 mt-2">
-                    →
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-emerald-700 mb-1 text-center">压缩后</div>
-                    <div className="h-32 rounded-2xl bg-white border border-sky-200 overflow-hidden flex items-center justify-center group-hover:border-sky-300 transition-colors">
-                      <LocalImage
-                        filePath={item.file}
-                        className="max-h-full max-w-full object-contain"
-                        alt="compressed"
-                      />
-                    </div>
-                    <div className="text-[10px] text-stone-950 mt-1 text-center tabular-nums">
-                      {item.outputSize}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 音频：双列播放器对比 */}
-              {!img && (
-                <div className="flex gap-3 mb-1">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-stone-400 mb-1 text-center">原始备份</div>
-                    <div className="rounded-2xl bg-white border border-stone-200 px-2 py-1.5">
-                      <LocalAudio filePath={item.backupPath} />
-                    </div>
-                    <div className="text-[10px] text-stone-500 mt-1 text-center tabular-nums">
-                      {item.inputSize}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center text-stone-300 text-lg shrink-0 mt-2">
-                    →
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-emerald-700 mb-1 text-center">压缩后</div>
-                    <div className="rounded-2xl bg-white border border-sky-200 px-2 py-1.5">
-                      <LocalAudio filePath={item.file} />
-                    </div>
-                    <div className="text-[10px] text-stone-950 mt-1 text-center tabular-nums">
-                      {item.outputSize}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 音频节省量 */}
-              {!img && (
-                <div className="mt-0.5 text-right text-xs text-stone-500">
-                  节省 <span className="text-emerald-600 font-semibold">{item.saved}</span>
-                </div>
-              )}
-
-              {/* 大小进度条 */}
-              <SizeBar inputBytes={item.inputBytes} outputBytes={item.outputBytes} />
-
-              {/* 图片额外展示节省量 */}
-              {img && (
-                <div className="mt-1.5 text-right text-xs text-stone-500">
-                  节省 <span className="text-emerald-600 font-semibold">{item.saved}</span>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </>
-  )
+  ).isRequired,
+  fullscreen: PropTypes.bool
 }

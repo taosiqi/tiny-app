@@ -31,7 +31,7 @@ export default function Sidebar({ appVersion }) {
               `group flex items-center gap-3 rounded-2xl border px-3 py-3 transition-all duration-200 ${
                 isActive
                   ? 'nav-active'
-                  : 'border-stone-200 bg-transparent text-stone-500 hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--theme-accent)_36%,transparent)] hover:bg-[color-mix(in_srgb,var(--theme-accent)_6%,transparent)] hover:text-stone-800'
+                  : 'interactive-row border-stone-200 bg-transparent text-stone-500 hover:-translate-y-0.5'
               }`
             }
           >

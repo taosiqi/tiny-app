@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::Command,
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
     },
+    time::UNIX_EPOCH,
 };
 use tauri::{
     image::Image,
@@ -19,6 +22,7 @@ use tauri::{
 #[derive(Default)]
 struct TaskState {
     stop_image: AtomicBool,
+    stop_audio: AtomicBool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -85,11 +89,26 @@ struct RestorePayload {
     original_path: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupStatusPayload {
+    original_path: String,
+    backup_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ComparePayload {
+    left_path: String,
+    right_path: String,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ProgressItem {
     file: String,
     backup_path: Option<String>,
+    format: Option<String>,
     status: String,
     input_size: Option<String>,
     output_size: Option<String>,
@@ -121,6 +140,73 @@ struct KeyCount {
 #[serde(rename_all = "camelCase")]
 struct PausedPayload {
     remaining: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BackupStatus {
+    original_path: String,
+    backup_path: Option<String>,
+    original_exists: bool,
+    backup_exists: bool,
+    original_size: Option<String>,
+    backup_size: Option<String>,
+    original_bytes: Option<u64>,
+    backup_bytes: Option<u64>,
+    original_modified: Option<u64>,
+    backup_modified: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ImageMetadata {
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AudioMetadata {
+    duration: Option<String>,
+    codec: Option<String>,
+    sample_rate: Option<String>,
+    channels: Option<String>,
+    bitrate: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct FileMetadata {
+    path: String,
+    name: String,
+    extension: Option<String>,
+    kind: String,
+    exists: bool,
+    size: Option<String>,
+    bytes: Option<u64>,
+    modified: Option<u64>,
+    sha256: Option<String>,
+    image: Option<ImageMetadata>,
+    audio: Option<AudioMetadata>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct TextDiffLine {
+    kind: String,
+    left: Option<String>,
+    right: Option<String>,
+    line: usize,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CompareResult {
+    left: FileMetadata,
+    right: FileMetadata,
+    same_hash: Option<bool>,
+    size_delta: Option<i64>,
+    text_diff: Option<Vec<TextDiffLine>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -274,6 +360,29 @@ fn stop_image_compression(state: State<'_, TaskState>) {
 }
 
 #[tauri::command]
+fn stop_audio_compression(state: State<'_, TaskState>) {
+    state.stop_audio.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn get_backup_status(payload: BackupStatusPayload) -> BackupStatus {
+    backup_status(
+        Path::new(&payload.original_path),
+        payload.backup_path.as_deref().map(Path::new),
+    )
+}
+
+#[tauri::command]
+fn get_file_metadata(app: AppHandle, file_path: String) -> FileMetadata {
+    file_metadata(Path::new(&file_path), Some(&app), true)
+}
+
+#[tauri::command]
+fn compare_files(app: AppHandle, payload: ComparePayload) -> CompareResult {
+    compare_file_pair(&app, Path::new(&payload.left_path), Path::new(&payload.right_path))
+}
+
+#[tauri::command]
 async fn compress_image(
     app: AppHandle,
     state: State<'_, TaskState>,
@@ -405,19 +514,24 @@ async fn compress_image(
 }
 
 #[tauri::command]
-async fn compress_audio(app: AppHandle, payload: AudioPayload) -> AppResult<()> {
+async fn compress_audio(
+    app: AppHandle,
+    state: State<'_, TaskState>,
+    payload: AudioPayload,
+) -> AppResult<()> {
+    state.stop_audio.store(false, Ordering::SeqCst);
     let recursive = payload.recursive.unwrap_or(true);
-    let ext = match payload.format.as_str() {
-        "mp3" => "mp3",
-        "ogg" => "ogg",
-        "wav" => "wav",
-        _ => "mp3",
+    let requested_format = normalize_audio_request(&payload.format);
+    let exts: &[&str] = if requested_format == "mixed" {
+        &["mp3", "ogg", "wav"]
+    } else {
+        std::slice::from_ref(&requested_format)
     };
     let mut files = Vec::new();
     for p in &payload.paths {
         let path = Path::new(p);
         if path.is_dir() {
-            collect_files(path, &[ext], recursive, &mut files);
+            collect_files(path, exts, recursive, &mut files);
         } else if path.exists() {
             files.push(path.to_path_buf());
         }
@@ -432,10 +546,27 @@ async fn compress_audio(app: AppHandle, payload: AudioPayload) -> AppResult<()> 
     let mut failed = 0usize;
     let mut saved_total = 0u64;
 
-    for file in &files {
+    for (idx, file) in files.iter().enumerate() {
+        if state.stop_audio.load(Ordering::SeqCst) {
+            emit_audio_paused(&app, &files[idx..])?;
+            return Ok(());
+        }
+
+        let actual_format = audio_format_for_request(file, requested_format);
+        let Some(actual_format) = actual_format else {
+            skipped += 1;
+            let result = skipped_audio_result(file, "不支持的音频格式，已跳过");
+            app.emit(
+                "compress:audio:progress",
+                ProgressItem::skipped(file, None, &result),
+            )
+            .map_err(|e| e.to_string())?;
+            continue;
+        };
+
         let backup_path = backup_file(file);
         let file_for_task = file.clone();
-        let format_for_task = payload.format.clone();
+        let format_for_task = actual_format.to_string();
         let ffmpeg_for_task = ffmpeg.clone();
         let result = tokio::task::spawn_blocking(move || {
             compress_audio_file(&file_for_task, &format_for_task, &ffmpeg_for_task)
@@ -470,6 +601,11 @@ async fn compress_audio(app: AppHandle, payload: AudioPayload) -> AppResult<()> 
                 )
                 .map_err(|e| e.to_string())?;
             }
+        }
+
+        if state.stop_audio.load(Ordering::SeqCst) {
+            emit_audio_paused(&app, &files[idx + 1..])?;
+            return Ok(());
         }
     }
 
@@ -552,9 +688,13 @@ pub fn run() {
             update_tinypng_keys,
             sync_window_theme,
             check_tinypng_key,
+            get_backup_status,
+            get_file_metadata,
+            compare_files,
             compress_image,
             stop_image_compression,
             compress_audio,
+            stop_audio_compression,
             restore_file,
             open_in_finder,
             open_external,
@@ -594,6 +734,7 @@ pub fn run() {
 #[derive(Debug)]
 struct CompressionResult {
     success: bool,
+    format: Option<String>,
     input_size: u64,
     output_size: u64,
     saved_bytes: Option<u64>,
@@ -606,6 +747,7 @@ impl ProgressItem {
         Self {
             file: file.to_string_lossy().to_string(),
             backup_path: backup_path.map(str::to_string),
+            format: result.format.clone(),
             status: "success".into(),
             input_size: Some(format_size(result.input_size)),
             output_size: Some(format_size(result.output_size)),
@@ -621,6 +763,7 @@ impl ProgressItem {
         Self {
             file: file.to_string_lossy().to_string(),
             backup_path: backup_path.map(str::to_string),
+            format: result.format.clone(),
             status: "skipped".into(),
             input_size: Some(format_size(result.input_size)),
             output_size: Some(format_size(result.output_size)),
@@ -636,6 +779,7 @@ impl ProgressItem {
         Self {
             file: file.to_string_lossy().to_string(),
             backup_path: backup_path.map(str::to_string),
+            format: audio_format_from_path(file).map(str::to_string),
             status: "error".into(),
             input_size: None,
             output_size: None,
@@ -859,6 +1003,44 @@ fn collect_files(dir: &Path, exts: &[&str], recursive: bool, results: &mut Vec<P
     }
 }
 
+fn normalize_audio_request(format: &str) -> &str {
+    match format {
+        "mixed" | "mp3" | "ogg" | "wav" => format,
+        _ => "mixed",
+    }
+}
+
+fn audio_format_from_path(path: &Path) -> Option<&'static str> {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("mp3") => Some("mp3"),
+        Some(ext) if ext.eq_ignore_ascii_case("ogg") => Some("ogg"),
+        Some(ext) if ext.eq_ignore_ascii_case("wav") => Some("wav"),
+        _ => None,
+    }
+}
+
+fn audio_format_for_request<'a>(path: &Path, requested: &'a str) -> Option<&'a str> {
+    let actual = audio_format_from_path(path)?;
+    if requested == "mixed" || requested == actual {
+        Some(actual)
+    } else {
+        None
+    }
+}
+
+fn skipped_audio_result(file_path: &Path, reason: &str) -> CompressionResult {
+    let original_size = fs::metadata(file_path).map(|meta| meta.len()).unwrap_or(0);
+    CompressionResult {
+        success: false,
+        format: audio_format_from_path(file_path).map(str::to_string),
+        input_size: original_size,
+        output_size: original_size,
+        saved_bytes: None,
+        reason: Some(reason.to_string()),
+        compression_count: 0,
+    }
+}
+
 fn backup_file(file_path: &Path) -> Option<String> {
     let dir = file_path.parent()?;
     let name = file_path.file_name()?;
@@ -914,6 +1096,268 @@ fn emit_paused(app: &AppHandle, remaining: &[PathBuf]) -> AppResult<()> {
         },
     )
     .map_err(|e| e.to_string())
+}
+
+fn emit_audio_paused(app: &AppHandle, remaining: &[PathBuf]) -> AppResult<()> {
+    app.emit(
+        "compress:audio:paused",
+        PausedPayload {
+            remaining: remaining
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect(),
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn backup_status(original: &Path, backup_override: Option<&Path>) -> BackupStatus {
+    let backup_path = backup_override
+        .map(Path::to_path_buf)
+        .or_else(|| expected_backup_path(original));
+    let original_meta = fs::metadata(original).ok();
+    let backup_meta = backup_path.as_ref().and_then(|path| fs::metadata(path).ok());
+
+    BackupStatus {
+        original_path: original.to_string_lossy().to_string(),
+        backup_path: backup_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        original_exists: original_meta.is_some(),
+        backup_exists: backup_meta.is_some(),
+        original_size: original_meta.as_ref().map(|meta| format_size(meta.len())),
+        backup_size: backup_meta.as_ref().map(|meta| format_size(meta.len())),
+        original_bytes: original_meta.as_ref().map(|meta| meta.len()),
+        backup_bytes: backup_meta.as_ref().map(|meta| meta.len()),
+        original_modified: original_meta.as_ref().and_then(modified_secs),
+        backup_modified: backup_meta.as_ref().and_then(modified_secs),
+    }
+}
+
+fn expected_backup_path(file_path: &Path) -> Option<PathBuf> {
+    Some(
+        file_path
+            .parent()?
+            .join("_tiny_backup")
+            .join(file_path.file_name()?),
+    )
+}
+
+fn modified_secs(meta: &fs::Metadata) -> Option<u64> {
+    meta.modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+}
+
+fn file_metadata(path: &Path, app: Option<&AppHandle>, include_hash: bool) -> FileMetadata {
+    let metadata = fs::metadata(path).ok();
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase());
+    let kind = file_kind(extension.as_deref());
+
+    FileMetadata {
+        path: path.to_string_lossy().to_string(),
+        name: path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string()),
+        extension,
+        kind: kind.to_string(),
+        exists: metadata.is_some(),
+        size: metadata.as_ref().map(|meta| format_size(meta.len())),
+        bytes: metadata.as_ref().map(|meta| meta.len()),
+        modified: metadata.as_ref().and_then(modified_secs),
+        sha256: if include_hash && metadata.is_some() {
+            sha256_file(path).ok()
+        } else {
+            None
+        },
+        image: if kind == "image" {
+            image_dimensions(path).map(|(width, height)| ImageMetadata {
+                width: Some(width),
+                height: Some(height),
+            })
+        } else {
+            None
+        },
+        audio: if kind == "audio" {
+            app.map(|handle| audio_metadata(path, &find_ffmpeg(handle)))
+        } else {
+            None
+        },
+    }
+}
+
+fn compare_file_pair(app: &AppHandle, left: &Path, right: &Path) -> CompareResult {
+    let left_meta = file_metadata(left, Some(app), true);
+    let right_meta = file_metadata(right, Some(app), true);
+    let same_hash = left_meta
+        .sha256
+        .as_ref()
+        .zip(right_meta.sha256.as_ref())
+        .map(|(left_hash, right_hash)| left_hash == right_hash);
+    let size_delta = left_meta
+        .bytes
+        .zip(right_meta.bytes)
+        .map(|(left_bytes, right_bytes)| right_bytes as i64 - left_bytes as i64);
+    let text_diff = if left_meta.kind == "text" && right_meta.kind == "text" {
+        build_text_diff(left, right).ok()
+    } else {
+        None
+    };
+
+    CompareResult {
+        left: left_meta,
+        right: right_meta,
+        same_hash,
+        size_delta,
+        text_diff,
+    }
+}
+
+fn file_kind(extension: Option<&str>) -> &'static str {
+    match extension.unwrap_or_default() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" => "image",
+        "mp3" | "ogg" | "wav" | "flac" | "m4a" | "aac" => "audio",
+        "txt" | "json" | "md" | "css" | "js" | "jsx" | "ts" | "tsx" | "html" | "xml" | "rs"
+        | "toml" | "yaml" | "yml" => "text",
+        _ => "binary",
+    }
+}
+
+fn sha256_file(path: &Path) -> AppResult<String> {
+    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 16 * 1024];
+
+    loop {
+        let read = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn image_dimensions(path: &Path) -> Option<(u32, u32)> {
+    let bytes = fs::read(path).ok()?;
+    if bytes.len() >= 24 && bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let width = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
+        let height = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
+        return Some((width, height));
+    }
+    if bytes.len() >= 10 && bytes.starts_with(b"GIF") {
+        let width = u16::from_le_bytes(bytes[6..8].try_into().ok()?) as u32;
+        let height = u16::from_le_bytes(bytes[8..10].try_into().ok()?) as u32;
+        return Some((width, height));
+    }
+    jpeg_dimensions(&bytes)
+}
+
+fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 4 || bytes[0] != 0xff || bytes[1] != 0xd8 {
+        return None;
+    }
+    let mut index = 2usize;
+    while index + 9 < bytes.len() {
+        if bytes[index] != 0xff {
+            index += 1;
+            continue;
+        }
+        let marker = bytes[index + 1];
+        if marker == 0xc0 || marker == 0xc2 {
+            let height = u16::from_be_bytes(bytes[index + 5..index + 7].try_into().ok()?) as u32;
+            let width = u16::from_be_bytes(bytes[index + 7..index + 9].try_into().ok()?) as u32;
+            return Some((width, height));
+        }
+        let segment_len =
+            u16::from_be_bytes(bytes[index + 2..index + 4].try_into().ok()?) as usize;
+        if segment_len < 2 {
+            return None;
+        }
+        index += 2 + segment_len;
+    }
+    None
+}
+
+fn audio_metadata(path: &Path, ffmpeg: &Path) -> AudioMetadata {
+    let output = Command::new(ffmpeg).arg("-i").arg(path).output();
+    let text = output
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stderr).to_string())
+        .unwrap_or_default();
+    let audio_line = text.lines().find(|line| line.contains("Audio:"));
+
+    AudioMetadata {
+        duration: parse_duration(&text),
+        codec: audio_line.and_then(|line| after_audio(line).and_then(|value| value.split(',').next().map(trim_string))),
+        sample_rate: audio_line.and_then(|line| pick_segment(line, "Hz")),
+        channels: audio_line.and_then(parse_channels),
+        bitrate: audio_line.and_then(|line| pick_segment(line, "kb/s")),
+    }
+}
+
+fn after_audio(line: &str) -> Option<&str> {
+    line.split_once("Audio:").map(|(_, value)| value.trim())
+}
+
+fn trim_string(value: &str) -> String {
+    value.trim().to_string()
+}
+
+fn parse_duration(text: &str) -> Option<String> {
+    text.lines()
+        .find_map(|line| line.split_once("Duration:"))
+        .and_then(|(_, rest)| rest.split(',').next())
+        .map(trim_string)
+}
+
+fn pick_segment(line: &str, needle: &str) -> Option<String> {
+    line.split(',')
+        .map(str::trim)
+        .find(|part| part.contains(needle))
+        .map(str::to_string)
+}
+
+fn parse_channels(line: &str) -> Option<String> {
+    line.split(',')
+        .map(str::trim)
+        .find(|part| matches!(*part, "mono" | "stereo") || part.ends_with("channels"))
+        .map(str::to_string)
+}
+
+fn build_text_diff(left: &Path, right: &Path) -> AppResult<Vec<TextDiffLine>> {
+    let left_text = fs::read_to_string(left).map_err(|e| e.to_string())?;
+    let right_text = fs::read_to_string(right).map_err(|e| e.to_string())?;
+    let left_lines: Vec<&str> = left_text.lines().collect();
+    let right_lines: Vec<&str> = right_text.lines().collect();
+    let max = left_lines.len().max(right_lines.len());
+    let mut diff = Vec::new();
+
+    for index in 0..max {
+        let left_line = left_lines.get(index).copied();
+        let right_line = right_lines.get(index).copied();
+        let kind = match (left_line, right_line) {
+            (Some(left_value), Some(right_value)) if left_value == right_value => "same",
+            (Some(_), Some(_)) => "changed",
+            (Some(_), None) => "removed",
+            (None, Some(_)) => "added",
+            (None, None) => "same",
+        };
+        diff.push(TextDiffLine {
+            kind: kind.to_string(),
+            left: left_line.map(str::to_string),
+            right: right_line.map(str::to_string),
+            line: index + 1,
+        });
+    }
+
+    Ok(diff)
 }
 
 async fn compress_image_file(
@@ -980,6 +1424,7 @@ async fn compress_image_file(
         })?;
         Ok(CompressionResult {
             success: true,
+            format: None,
             input_size: shrink.input.size,
             output_size: shrink.output.size,
             saved_bytes: Some(shrink.input.size - shrink.output.size),
@@ -989,6 +1434,7 @@ async fn compress_image_file(
     } else {
         Ok(CompressionResult {
             success: false,
+            format: None,
             input_size: shrink.input.size,
             output_size: shrink.output.size,
             saved_bytes: None,
@@ -1076,6 +1522,7 @@ fn compress_audio_file(
         let _ = fs::remove_file(&temp_file);
         Ok(CompressionResult {
             success: true,
+            format: Some(format.to_string()),
             input_size: original_size,
             output_size: compressed_size,
             saved_bytes: Some(original_size - compressed_size),
@@ -1086,6 +1533,7 @@ fn compress_audio_file(
         let _ = fs::remove_file(&temp_file);
         Ok(CompressionResult {
             success: false,
+            format: Some(format.to_string()),
             input_size: original_size,
             output_size: compressed_size,
             saved_bytes: None,
@@ -1140,4 +1588,91 @@ fn find_ffmpeg(app: &AppHandle) -> PathBuf {
         .into_iter()
         .find(|path| path.exists())
         .unwrap_or_else(|| PathBuf::from("ffmpeg"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn formats_file_sizes() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1536), "1.5 KB");
+        assert_eq!(format_size(1024 * 1024), "1 MB");
+    }
+
+    #[test]
+    fn collects_files_and_skips_backup_dir() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.png"), b"x").unwrap();
+        fs::write(root.join("b.txt"), b"x").unwrap();
+        fs::create_dir(root.join("nested")).unwrap();
+        fs::write(root.join("nested").join("c.JPG"), b"x").unwrap();
+        fs::create_dir(root.join("_tiny_backup")).unwrap();
+        fs::write(root.join("_tiny_backup").join("d.png"), b"x").unwrap();
+
+        let mut files = Vec::new();
+        collect_files(root, &["png", "jpg"], true, &mut files);
+        let names: Vec<String> = files
+            .iter()
+            .filter_map(|path| path.file_name())
+            .map(|name| name.to_string_lossy().to_string())
+            .collect();
+
+        assert!(names.contains(&"a.png".to_string()));
+        assert!(names.contains(&"c.JPG".to_string()));
+        assert!(!names.contains(&"d.png".to_string()));
+        assert_eq!(names.len(), 2);
+    }
+
+    #[test]
+    fn resolves_mixed_audio_formats_by_extension() {
+        assert_eq!(normalize_audio_request("mixed"), "mixed");
+        assert_eq!(normalize_audio_request("mp3"), "mp3");
+        assert_eq!(normalize_audio_request("bad"), "mixed");
+        assert_eq!(audio_format_for_request(Path::new("song.MP3"), "mixed"), Some("mp3"));
+        assert_eq!(audio_format_for_request(Path::new("song.ogg"), "mixed"), Some("ogg"));
+        assert_eq!(audio_format_for_request(Path::new("song.wav"), "wav"), Some("wav"));
+        assert_eq!(audio_format_for_request(Path::new("song.wav"), "mp3"), None);
+        assert_eq!(audio_format_for_request(Path::new("song.flac"), "mixed"), None);
+    }
+
+    #[test]
+    fn picks_first_non_exhausted_key() {
+        let keys = vec!["".into(), "a".into(), "b".into()];
+        assert_eq!(pick_key(&keys, &[]), Some("a".into()));
+        assert_eq!(pick_key(&keys, &["a".into()]), Some("b".into()));
+        assert_eq!(pick_key(&keys, &["a".into(), "b".into()]), None);
+    }
+
+    #[test]
+    fn reports_backup_status() {
+        let dir = tempdir().unwrap();
+        let original = dir.path().join("a.png");
+        fs::write(&original, b"original").unwrap();
+        let backup = expected_backup_path(&original).unwrap();
+        fs::create_dir_all(backup.parent().unwrap()).unwrap();
+        fs::write(&backup, b"backup").unwrap();
+
+        let status = backup_status(&original, None);
+        assert!(status.original_exists);
+        assert!(status.backup_exists);
+        assert_eq!(status.original_bytes, Some(8));
+        assert_eq!(status.backup_bytes, Some(6));
+    }
+
+    #[test]
+    fn hashes_files_with_sha256() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("a.txt");
+        fs::write(&file, b"abc").unwrap();
+
+        assert_eq!(
+            sha256_file(&file).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 }

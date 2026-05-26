@@ -1,12 +1,13 @@
 {
   "name": "tiny-app",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "description": "一款基于 Tauri 的桌面工具，支持 TinyPNG 图片压缩与音频文件压缩",
   "author": "taosiqi",
   "homepage": "https://github.com/taosiqi/tiny-app",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
+    "test": "vitest run",
     "dev": "tauri dev",
     "build": "tauri build",
     "vite:dev": "vite --host 127.0.0.1",
@@ -32,6 +33,8 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@tauri-apps/cli": "^2.9.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@unocss/reset": "^66.6.2",
     "@vitejs/plugin-react": "^5.1.1",
     "eslint": "^9.39.1",
@@ -41,9 +44,11 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "ffmpeg-static": "^5.3.0",
     "globals": "^16.5.0",
+    "jsdom": "^29.1.1",
     "prettier": "^3.7.4",
     "unocss": "^66.6.2",
-    "vite": "^7.2.6"
+    "vite": "^7.2.6",
+    "vitest": "^4.1.7"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

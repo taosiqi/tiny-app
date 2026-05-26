@@ -63,6 +63,7 @@ export function SettingsProvider({ children }) {
       } catch (error) {
         console.error('[settings] failed to persist settings', error)
         setSettings(previous)
+        throw error
       }
     },
     [settings]

@@ -18,6 +18,10 @@ export default defineConfig({
     sourcemap: false,
     minify: true
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.js'
+  },
   resolve: {
     alias: {
       '@renderer': resolve('src/renderer/src')

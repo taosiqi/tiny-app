@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "TinyPress",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "identifier": "com.taosiqi.tiny-app",
   "build": {
     "beforeDevCommand": "pnpm vite:dev",
