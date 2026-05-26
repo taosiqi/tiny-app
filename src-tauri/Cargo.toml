@@ -1,6 +1,6 @@
 [package]
 name = "tiny-app"
-version = "1.2.1"
+version = "1.2.2"
 description = "A Tauri desktop utility for TinyPNG and audio compression"
 authors = ["taosiqi"]
 edition = "2021"

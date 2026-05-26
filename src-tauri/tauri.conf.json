@@ -40,6 +40,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["../node_modules/ffmpeg-static/ffmpeg"]
+    "resources": []
   }
 }
