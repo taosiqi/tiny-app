@@ -39,6 +39,12 @@ struct TaskState {
 
 type AppResult<T> = Result<T, String>;
 
+const TINY_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
+    0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 100, 248, 207, 80, 15, 0, 3,
+    134, 1, 128, 90, 52, 125, 107, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -104,15 +110,16 @@ fn sync_window_theme(app: AppHandle, mode: String) -> AppResult<()> {
 
 #[tauri::command]
 async fn check_tinypng_key(api_key: String) -> AppResult<KeyCheckResult> {
-    const TINY_PNG: &[u8] = &[
-        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
-        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 100, 248, 207, 80,
-        15, 0, 3, 134, 1, 128, 90, 52, 125, 107, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
-    ];
+    check_tinypng_key_with_endpoint(api_key, "https://api.tinify.com/shrink").await
+}
 
+async fn check_tinypng_key_with_endpoint(
+    api_key: String,
+    endpoint: &str,
+) -> AppResult<KeyCheckResult> {
     let client = reqwest::Client::new();
     let response = client
-        .post("https://api.tinify.com/shrink")
+        .post(endpoint)
         .basic_auth("api", Some(api_key))
         .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
         .body(TINY_PNG.to_vec())
@@ -1237,7 +1244,47 @@ fn find_ffmpeg(app: &AppHandle) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        future::Future,
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
     use tempfile::tempdir;
+
+    fn run_async<T>(future: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    fn tinify_mock_endpoint(status: u16, compression_count: Option<u32>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 2048];
+            let _ = stream.read(&mut buffer);
+            let status_text = match status {
+                200 => "OK",
+                201 => "Created",
+                401 => "Unauthorized",
+                429 => "Too Many Requests",
+                _ => "Server Error",
+            };
+            let count_header = compression_count
+                .map(|count| format!("compression-count: {}\r\n", count))
+                .unwrap_or_default();
+            let response = format!(
+                "HTTP/1.1 {} {}\r\n{}content-length: 0\r\nconnection: close\r\n\r\n",
+                status, status_text, count_header
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        endpoint
+    }
 
     #[test]
     fn formats_file_sizes() {
@@ -1295,6 +1342,62 @@ mod tests {
     }
 
     #[test]
+    fn backup_keeps_first_original_copy() {
+        let dir = tempdir().unwrap();
+        let original = dir.path().join("a.png");
+        fs::write(&original, b"first").unwrap();
+
+        let backup = backup_file(&original, DEFAULT_BACKUP_DIR_NAME).unwrap();
+        fs::write(&original, b"second").unwrap();
+        let same_backup = backup_file(&original, DEFAULT_BACKUP_DIR_NAME).unwrap();
+
+        assert_eq!(backup, same_backup);
+        assert_eq!(fs::read(PathBuf::from(backup)).unwrap(), b"first");
+    }
+
+    #[test]
+    fn normalizes_settings_and_preserves_keys() {
+        let settings = AppSettings {
+            night_mode: "invalid".into(),
+            close_behavior: "bad".into(),
+            backup_dir_name: "../bad".into(),
+            tinypng_keys: vec![StoredTinypngKey {
+                value: "key".into(),
+                compression_count: Some(8),
+            }],
+        };
+
+        let normalized = normalize_settings(settings);
+
+        assert_eq!(normalized.night_mode, "system");
+        assert_eq!(normalized.close_behavior, "background");
+        assert_eq!(normalized.backup_dir_name, DEFAULT_BACKUP_DIR_NAME);
+        assert_eq!(normalized.tinypng_keys[0].value, "key");
+        assert_eq!(normalized.tinypng_keys[0].compression_count, Some(8));
+    }
+
+    #[test]
+    fn persists_settings_to_json() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let settings = AppSettings {
+            night_mode: "dark".into(),
+            close_behavior: "quit".into(),
+            backup_dir_name: "custom_backup".into(),
+            tinypng_keys: vec![StoredTinypngKey {
+                value: "key".into(),
+                compression_count: Some(3),
+            }],
+        };
+
+        persist_settings(&path, &settings).unwrap();
+        let raw = fs::read_to_string(path).unwrap();
+
+        assert!(raw.contains("\"backupDirName\": \"custom_backup\""));
+        assert!(raw.contains("\"compressionCount\": 3"));
+    }
+
+    #[test]
     fn resolves_mixed_audio_formats_by_extension() {
         assert_eq!(normalize_audio_request("mixed"), "mixed");
         assert_eq!(normalize_audio_request("mp3"), "mp3");
@@ -1343,6 +1446,47 @@ mod tests {
     }
 
     #[test]
+    fn reads_file_metadata_for_images_text_binary_and_missing_files() {
+        let dir = tempdir().unwrap();
+        let image = dir.path().join("one.png");
+        let text = dir.path().join("a.txt");
+        let binary = dir.path().join("data.bin");
+        let missing = dir.path().join("missing.txt");
+        fs::write(&image, TINY_PNG).unwrap();
+        fs::write(&text, b"hello").unwrap();
+        fs::write(&binary, [0, 159, 146, 150]).unwrap();
+
+        let image_meta = file_metadata(&image, None, true);
+        let text_meta = file_metadata(&text, None, true);
+        let binary_meta = file_metadata(&binary, None, false);
+        let missing_meta = file_metadata(&missing, None, true);
+
+        assert_eq!(image_meta.kind, "image");
+        let dimensions = image_meta.image.as_ref().unwrap();
+        assert_eq!(dimensions.width, Some(1));
+        assert_eq!(dimensions.height, Some(1));
+        assert_eq!(text_meta.kind, "text");
+        assert!(text_meta.sha256.is_some());
+        assert_eq!(binary_meta.kind, "binary");
+        assert!(!missing_meta.exists);
+    }
+
+    #[test]
+    fn builds_text_diff_for_changed_added_and_removed_lines() {
+        let dir = tempdir().unwrap();
+        let left = dir.path().join("left.txt");
+        let right = dir.path().join("right.txt");
+        fs::write(&left, "same\nold\nremoved\n").unwrap();
+        fs::write(&right, "same\nnew\n").unwrap();
+
+        let diff = build_text_diff(&left, &right).unwrap();
+
+        assert_eq!(diff[0].kind, "same");
+        assert_eq!(diff[1].kind, "changed");
+        assert_eq!(diff[2].kind, "removed");
+    }
+
+    #[test]
     fn deletes_only_matching_sibling_backup_file() {
         let dir = tempdir().unwrap();
         let original = dir.path().join("a.png");
@@ -1380,5 +1524,37 @@ mod tests {
             sha256_file(&file).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn checks_tinypng_key_against_mock_success_and_exhausted_responses() {
+        let success = tinify_mock_endpoint(201, Some(42));
+        let success_result =
+            run_async(check_tinypng_key_with_endpoint("key".into(), &success)).unwrap();
+        assert!(success_result.valid);
+        assert_eq!(success_result.compression_count, Some(42));
+        assert_eq!(success_result.remaining, Some(458));
+
+        let exhausted = tinify_mock_endpoint(429, Some(500));
+        let exhausted_result =
+            run_async(check_tinypng_key_with_endpoint("key".into(), &exhausted)).unwrap();
+        assert!(exhausted_result.valid);
+        assert_eq!(exhausted_result.remaining, Some(0));
+        assert_eq!(exhausted_result.error, Some("当月已达上限".into()));
+    }
+
+    #[test]
+    fn checks_tinypng_key_against_mock_invalid_and_network_errors() {
+        let invalid = tinify_mock_endpoint(401, None);
+        let invalid_result =
+            run_async(check_tinypng_key_with_endpoint("bad".into(), &invalid)).unwrap();
+        assert!(!invalid_result.valid);
+        assert_eq!(invalid_result.error, Some("API Key 无效".into()));
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let network_result = run_async(check_tinypng_key_with_endpoint("key".into(), &endpoint));
+        assert!(network_result.is_err());
     }
 }

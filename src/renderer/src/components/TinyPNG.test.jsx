@@ -2,7 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TinyPNG from './TinyPNG'
 import { ToastProvider } from '../toast/ToastContext'
-import { checkTinypngKey, getTinypngKeys } from '../api/desktop'
+import {
+  checkTinypngKey,
+  compressImage,
+  getTinypngKeys,
+  onImagePaused,
+  openFiles
+} from '../api/desktop'
 
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path) => `asset://${path}`
@@ -69,5 +75,84 @@ describe('TinyPNG', () => {
 
     await waitFor(() => expect(getTinypngKeys).toHaveBeenCalled())
     expect(checkTinypngKey).not.toHaveBeenCalled()
+  })
+
+  it('validates individual keys and shows exhausted key state', async () => {
+    checkTinypngKey.mockResolvedValueOnce({
+      valid: true,
+      compressionCount: 500,
+      error: '当月已达上限'
+    })
+
+    render(
+      <ToastProvider>
+        <TinyPNG />
+      </ToastProvider>
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('your-api-key'), {
+      target: { value: 'manual-key' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '验证' }))
+
+    await waitFor(() => expect(checkTinypngKey).toHaveBeenCalledWith('manual-key'))
+    expect(await screen.findByText('已耗尽')).toBeInTheDocument()
+    expect(screen.getByText('当月已达上限')).toBeInTheDocument()
+  })
+
+  it('starts image compression with selected files and recursive setting', async () => {
+    openFiles.mockResolvedValueOnce(['/tmp/photo.png'])
+    compressImage.mockResolvedValueOnce()
+
+    render(
+      <ToastProvider>
+        <TinyPNG />
+      </ToastProvider>
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('your-api-key'), { target: { value: 'key-a' } })
+    fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
+    expect(await screen.findByText('/tmp/photo.png')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('递归子目录'))
+    fireEvent.click(screen.getByRole('button', { name: '🚀 开始压缩' }))
+
+    await waitFor(() =>
+      expect(compressImage).toHaveBeenCalledWith({
+        paths: ['/tmp/photo.png'],
+        apiKeys: ['key-a'],
+        recursive: false
+      })
+    )
+  })
+
+  it('pauses and continues remaining image compression work', async () => {
+    openFiles.mockResolvedValueOnce(['/tmp/photo.png'])
+    compressImage.mockResolvedValue()
+
+    render(
+      <ToastProvider>
+        <TinyPNG />
+      </ToastProvider>
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('your-api-key'), { target: { value: 'key-a' } })
+    fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
+    await screen.findByText('/tmp/photo.png')
+    fireEvent.click(screen.getByRole('button', { name: '🚀 开始压缩' }))
+
+    await waitFor(() => expect(onImagePaused).toHaveBeenCalled())
+    onImagePaused.mock.calls.at(-1)[0]({ remaining: ['/tmp/left.png'] })
+
+    expect(await screen.findByRole('button', { name: '▶ 继续压缩（1 张）' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '▶ 继续压缩（1 张）' }))
+
+    await waitFor(() =>
+      expect(compressImage).toHaveBeenLastCalledWith({
+        paths: ['/tmp/left.png'],
+        apiKeys: ['key-a'],
+        recursive: true
+      })
+    )
   })
 })

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ComparePanel from './ComparePanel'
-import { deleteBackupFile, getBackupStatus } from '../api/desktop'
+import { deleteBackupFile, getBackupStatus, restoreFile } from '../api/desktop'
 
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path) => `asset://${path}`
@@ -58,6 +58,22 @@ const logs = [
     saved: '2 KB'
   }
 ]
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  getBackupStatus.mockImplementation(async ({ originalPath, backupPath }) => ({
+    originalPath,
+    backupPath,
+    originalExists: true,
+    backupExists: true,
+    originalSize: '1 KB',
+    backupSize: '2 KB',
+    originalBytes: 1024,
+    backupBytes: 2048,
+    originalModified: 1700000000,
+    backupModified: 1700000000
+  }))
+})
 
 describe('ComparePanel', () => {
   it('filters compare results by file type', async () => {
@@ -127,5 +143,54 @@ describe('ComparePanel', () => {
     )
     expect(screen.getAllByRole('button', { name: '备份缺失' })[0]).toBeDisabled()
     confirmSpy.mockRestore()
+  })
+
+  it('restores the selected backup and updates current status', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    getBackupStatus.mockResolvedValue({
+      originalPath: '/tmp/photo.png',
+      backupPath: '/tmp/_tiny_backup/photo.png',
+      originalExists: true,
+      backupExists: true,
+      originalSize: '2 KB',
+      backupSize: '2 KB',
+      originalBytes: 2048,
+      backupBytes: 2048,
+      originalModified: 1700000000,
+      backupModified: 1700000000
+    })
+
+    render(<ComparePanel logs={logs} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /photo\.png/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '还原' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '还原' }))
+
+    await waitFor(() =>
+      expect(restoreFile).toHaveBeenCalledWith('/tmp/_tiny_backup/photo.png', '/tmp/photo.png')
+    )
+    expect(await screen.findByRole('button', { name: '已还原' })).toBeDisabled()
+    confirmSpy.mockRestore()
+  })
+
+  it('disables backup actions when the selected backup is missing', async () => {
+    getBackupStatus.mockResolvedValue({
+      originalPath: '/tmp/photo.png',
+      backupPath: '/tmp/_tiny_backup/photo.png',
+      originalExists: true,
+      backupExists: false,
+      originalSize: '1 KB',
+      backupSize: null,
+      originalBytes: 1024,
+      backupBytes: null,
+      originalModified: 1700000000,
+      backupModified: null
+    })
+
+    render(<ComparePanel logs={[logs[0]]} />)
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '备份缺失' })).toHaveLength(2))
+    expect(screen.getAllByRole('button', { name: '备份缺失' })[0]).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: '备份缺失' })[1]).toBeDisabled()
   })
 })
