@@ -124,7 +124,9 @@ const KEY_LIMIT = 500
  */
 export default function TinyPNG() {
   const toast = useToast()
-  const [keys, setKeys] = useState([{ value: '', status: 'idle', compressionCount: null, error: null }])
+  const [keys, setKeys] = useState([
+    { value: '', status: 'idle', compressionCount: null, error: null }
+  ])
   const [keysReady, setKeysReady] = useState(false)
   const [paths, setPaths] = useState([])
   const [logs, setLogs] = useState([])
@@ -138,6 +140,7 @@ export default function TinyPNG() {
   const [logFilter, setLogFilter] = useState('all')
   const [recursive, setRecursive] = useState(true)
   const logRef = useRef(null)
+  const autoCheckedRef = useRef(false)
 
   /** 将日志容器滚动到底部（延迟 50ms 等待 DOM 更新） */
   const scrollBottom = useCallback(() => {
@@ -156,11 +159,61 @@ export default function TinyPNG() {
         const next = stored?.length ? stored : legacy
 
         if (active && next?.length) {
-          setKeys(next.map((k) => ({ ...k, status: 'idle', error: null })))
+          const restored = next.map((k) => ({ ...k, status: 'idle', error: null }))
+          const snapshot = restored
+            .map((key, index) => ({ ...key, index, value: key.value.trim() }))
+            .filter((key) => key.value)
+          setKeys(
+            restored.map((key, index) =>
+              snapshot.some((item) => item.index === index) ? { ...key, status: 'checking' } : key
+            )
+          )
+
+          if (!autoCheckedRef.current && snapshot.length > 0) {
+            autoCheckedRef.current = true
+            const results = await Promise.all(
+              snapshot.map(async (key) => {
+                try {
+                  const result = await checkTinypngKey(key.value)
+                  return { key, result }
+                } catch (error) {
+                  return {
+                    key,
+                    result: {
+                      valid: false,
+                      compressionCount: null,
+                      error: error?.message ?? String(error)
+                    }
+                  }
+                }
+              })
+            )
+            if (active) {
+              setKeys((prev) =>
+                prev.map((key, index) => {
+                  const checked = results.find((item) => item.key.index === index)
+                  if (!checked) return key
+                  const { result } = checked
+                  return {
+                    ...key,
+                    status: result.valid ? 'valid' : 'invalid',
+                    compressionCount: result.compressionCount,
+                    error: result.error || null
+                  }
+                })
+              )
+              const validCount = results.filter((item) => item.result.valid).length
+              if (validCount > 0)
+                toast.success(`自动校验完成：${validCount}/${snapshot.length} 个 Key 可用`)
+              else toast.error('自动校验完成：没有可用 Key')
+            }
+          }
         }
 
         if (!stored?.length && legacy?.length) {
-          await updateTinypngKeys(legacy.map(({ value, compressionCount }) => ({ value, compressionCount })))
+          await updateTinypngKeys(
+            legacy.map(({ value, compressionCount }) => ({ value, compressionCount }))
+          )
           localStorage.removeItem(STORAGE_KEY)
         }
       } catch (error) {
@@ -175,7 +228,7 @@ export default function TinyPNG() {
     return () => {
       active = false
     }
-  }, [])
+  }, [toast])
 
   // keys 变化时持久化到 Rust 设置（只存 value 和 compressionCount，运行时状态不持久化）
   useEffect(() => {
@@ -225,7 +278,9 @@ export default function TinyPNG() {
   }
 
   const checkAllKeys = async () => {
-    const snapshot = keys.map((k, index) => ({ ...k, index, value: k.value.trim() })).filter((k) => k.value)
+    const snapshot = keys
+      .map((k, index) => ({ ...k, index, value: k.value.trim() }))
+      .filter((k) => k.value)
     if (snapshot.length === 0) {
       toast.warning('请先填写 TinyPNG API Key')
       return
@@ -392,7 +447,9 @@ export default function TinyPNG() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {compareFullscreen && <CompareFullscreen logs={logs} onClose={() => setCompareFullscreen(false)} />}
+      {compareFullscreen && (
+        <CompareFullscreen logs={logs} onClose={() => setCompareFullscreen(false)} />
+      )}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-7 py-6 gap-4">
         {/* API Keys */}
         <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 p-5 shrink-0">
@@ -473,7 +530,9 @@ export default function TinyPNG() {
                     }`}
                     title={`已用 ${k.compressionCount} / ${KEY_LIMIT}`}
                   >
-                    {KEY_LIMIT - k.compressionCount <= 0 ? '已耗尽' : `剩余 ${KEY_LIMIT - k.compressionCount}`}
+                    {KEY_LIMIT - k.compressionCount <= 0
+                      ? '已耗尽'
+                      : `剩余 ${KEY_LIMIT - k.compressionCount}`}
                   </span>
                 )}
                 {k.status === 'invalid' && (
@@ -606,7 +665,9 @@ export default function TinyPNG() {
           <button
             onClick={() => {
               toast.info('正在暂停图片压缩')
-              stopImageCompression().catch((error) => toast.error(`暂停失败：${error?.message ?? error}`))
+              stopImageCompression().catch((error) =>
+                toast.error(`暂停失败：${error?.message ?? error}`)
+              )
             }}
             className="w-full shrink-0 rounded-2xl bg-yellow-500 py-2.5 text-sm font-semibold text-white hover:bg-yellow-600"
           >
@@ -700,7 +761,9 @@ export default function TinyPNG() {
                         key={id}
                         onClick={() => setLogFilter(id)}
                         className={`rounded-2xl px-2 py-0.5 text-xs ${
-                          logFilter === id ? 'tab-active font-medium' : 'interactive-ghost text-stone-400'
+                          logFilter === id
+                            ? 'tab-active font-medium'
+                            : 'interactive-ghost text-stone-400'
                         }`}
                       >
                         {label}

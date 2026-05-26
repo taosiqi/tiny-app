@@ -30,6 +30,7 @@ vi.mock('../api/desktop', () => ({
     image: { width: 100, height: 80 },
     audio: null
   })),
+  deleteBackupFile: vi.fn(async () => {}),
   openInFinder: vi.fn(),
   restoreFile: vi.fn()
 }))

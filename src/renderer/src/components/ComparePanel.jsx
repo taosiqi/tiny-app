@@ -7,7 +7,13 @@ import PropTypes from 'prop-types'
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { basename, formatTimestamp, isAudio, isImage } from '../utils/fileUtils'
-import { getBackupStatus, getFileMetadata, openInFinder, restoreFile } from '../api/desktop'
+import {
+  deleteBackupFile,
+  getBackupStatus,
+  getFileMetadata,
+  openInFinder,
+  restoreFile
+} from '../api/desktop'
 import { useToast } from '../toast/useToast'
 
 function toLocalURL(filePath) {
@@ -57,7 +63,9 @@ function ImageSlider({ original, current, height = 'h-40' }) {
   const [position, setPosition] = useState(50)
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl border border-stone-200 bg-white ${height}`}>
+    <div
+      className={`relative overflow-hidden rounded-2xl border border-stone-200 bg-white ${height}`}
+    >
       <div className="absolute left-3 top-3 z-20 rounded-full bg-stone-950/70 px-2.5 py-1 text-[10px] font-semibold text-white">
         原始备份
       </div>
@@ -65,7 +73,10 @@ function ImageSlider({ original, current, height = 'h-40' }) {
         压缩后
       </div>
       <LocalImage filePath={current} className="h-full w-full object-contain" alt="compressed" />
-      <div className="absolute inset-y-0 left-0 overflow-hidden bg-white" style={{ width: `${position}%` }}>
+      <div
+        className="absolute inset-y-0 left-0 overflow-hidden bg-white"
+        style={{ width: `${position}%` }}
+      >
         <div className="h-full" style={{ width: `${10000 / Math.max(position, 1)}%` }}>
           <LocalImage filePath={original} className="h-full w-full object-contain" alt="original" />
         </div>
@@ -109,13 +120,19 @@ function ImageCompareModal({ item, onClose }) {
   if (!item) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75"
+      onClick={onClose}
+    >
       <div
         className="flex max-h-[90vh] w-[900px] max-w-[92vw] flex-col rounded-2xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-stone-100 px-5 py-3">
-          <span className="max-w-md truncate font-mono text-sm font-semibold text-stone-700" title={item.file}>
+          <span
+            className="max-w-md truncate font-mono text-sm font-semibold text-stone-700"
+            title={item.file}
+          >
             {basename(item.file)}
           </span>
           <div className="flex items-center gap-2">
@@ -125,7 +142,10 @@ function ImageCompareModal({ item, onClose }) {
             >
               {mode === 'side' ? '滑块对比' : '并排对比'}
             </button>
-            <button onClick={onClose} className="interactive-ghost rounded-full px-2 text-xl leading-none text-stone-400">
+            <button
+              onClick={onClose}
+              className="interactive-ghost rounded-full px-2 text-xl leading-none text-stone-400"
+            >
               ×
             </button>
           </div>
@@ -149,11 +169,17 @@ function ImageCompareModal({ item, onClose }) {
                       wrapperClass="!w-full !h-full"
                       contentClass="!w-full !h-full flex items-center justify-center"
                     >
-                      <LocalImage filePath={file} className="max-h-full max-w-full object-contain" alt={label} />
+                      <LocalImage
+                        filePath={file}
+                        className="max-h-full max-w-full object-contain"
+                        alt={label}
+                      />
                     </TransformComponent>
                   </TransformWrapper>
                 </div>
-                <div className="mt-3 text-center text-xs font-medium tabular-nums text-stone-500">{size}</div>
+                <div className="mt-3 text-center text-xs font-medium tabular-nums text-stone-500">
+                  {size}
+                </div>
               </div>
             ))}
           </div>
@@ -173,7 +199,12 @@ function MetadataGrid({ metadata }) {
   const rows = [
     ['大小', metadata.size],
     ['修改时间', formatTimestamp(metadata.modified)],
-    ['尺寸', metadata.image?.width && metadata.image?.height ? `${metadata.image.width} × ${metadata.image.height}` : null],
+    [
+      '尺寸',
+      metadata.image?.width && metadata.image?.height
+        ? `${metadata.image.width} × ${metadata.image.height}`
+        : null
+    ],
     ['时长', metadata.audio?.duration],
     ['编码', metadata.audio?.codec],
     ['采样率', metadata.audio?.sampleRate],
@@ -223,13 +254,20 @@ function ImageCompareView({ item, fullscreen = false }) {
             { label: '原始备份', file: item.backupPath, size: item.inputSize },
             { label: '压缩后', file: item.file, size: item.outputSize }
           ].map(({ label, file, size }) => (
-            <div key={label} className={`flex ${imageMinHeight} min-w-0 flex-col rounded-2xl border border-stone-200 bg-white p-3`}>
+            <div
+              key={label}
+              className={`flex ${imageMinHeight} min-w-0 flex-col rounded-2xl border border-stone-200 bg-white p-3`}
+            >
               <div className="mb-2 flex items-center justify-between text-xs">
                 <span className="font-medium text-stone-600">{label}</span>
                 <span className="tabular-nums text-stone-400">{size}</span>
               </div>
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl bg-stone-50">
-                <LocalImage filePath={file} className="max-h-full max-w-full object-contain" alt={label} />
+                <LocalImage
+                  filePath={file}
+                  className="max-h-full max-w-full object-contain"
+                  alt={label}
+                />
               </div>
             </div>
           ))}
@@ -248,13 +286,17 @@ export default function ComparePanel({ logs, fullscreen = false }) {
   const toast = useToast()
   const [restoredSet, setRestoredSet] = useState(new Set())
   const [loadingSet, setLoadingSet] = useState(new Set())
+  const [deletingSet, setDeletingSet] = useState(new Set())
   const [modalItem, setModalItem] = useState(null)
   const [sortBy, setSortBy] = useState('saved')
   const [typeFilter, setTypeFilter] = useState('all')
   const [selectedFile, setSelectedFile] = useState('')
   const [details, setDetails] = useState({})
 
-  const successItems = useMemo(() => logs.filter((item) => item.status === 'success' && item.backupPath), [logs])
+  const successItems = useMemo(
+    () => logs.filter((item) => item.status === 'success' && item.backupPath),
+    [logs]
+  )
 
   useEffect(() => {
     let active = true
@@ -290,7 +332,7 @@ export default function ComparePanel({ logs, fullscreen = false }) {
     })
     return [...filtered].sort((a, b) => {
       if (sortBy === 'name') return basename(a.file).localeCompare(basename(b.file), 'zh-CN')
-      return (b.inputBytes - b.outputBytes) - (a.inputBytes - a.outputBytes)
+      return b.inputBytes - b.outputBytes - (a.inputBytes - a.outputBytes)
     })
   }, [sortBy, successItems, typeFilter])
 
@@ -361,6 +403,36 @@ export default function ComparePanel({ logs, fullscreen = false }) {
     [loadingSet, toast]
   )
 
+  const deleteBackup = useCallback(
+    async (item) => {
+      if (deletingSet.has(item.file) || loadingSet.has(item.file)) return
+      const ok = window.confirm(`确认删除当前文件的备份？\n${item.backupPath}`)
+      if (!ok) return
+      setDeletingSet((set) => new Set([...set, item.file]))
+      try {
+        await deleteBackupFile(item.backupPath, item.file)
+        const [backupStatus, originalMeta] = await Promise.all([
+          getBackupStatus({ originalPath: item.file, backupPath: item.backupPath }),
+          getFileMetadata(item.backupPath)
+        ])
+        setDetails((prev) => ({
+          ...prev,
+          [item.file]: { ...prev[item.file], backupStatus, originalMeta }
+        }))
+        toast.success('已删除备份文件')
+      } catch (error) {
+        toast.error(`删除备份失败：${error?.message ?? error}`)
+      } finally {
+        setDeletingSet((set) => {
+          const next = new Set(set)
+          next.delete(item.file)
+          return next
+        })
+      }
+    },
+    [deletingSet, loadingSet, toast]
+  )
+
   if (successItems.length === 0) {
     return <div className="py-10 text-center text-sm text-stone-400">没有可对比的文件</div>
   }
@@ -370,6 +442,7 @@ export default function ComparePanel({ logs, fullscreen = false }) {
   const backupExists = backupStatus?.backupExists !== false
   const isRestored = selected ? restoredSet.has(selected.file) : false
   const isLoading = selected ? loadingSet.has(selected.file) : false
+  const isDeleting = selected ? deletingSet.has(selected.file) : false
   const selectedIsImage = selected ? isImage(selected.file) : false
   const selectedIsAudio = selected ? isAudio(selected.file) : false
 
@@ -419,7 +492,9 @@ export default function ComparePanel({ logs, fullscreen = false }) {
           <div className="shrink-0 border-b border-stone-100 px-3 py-2 text-xs font-semibold text-stone-500">
             成功记录 {items.length}
           </div>
-          <div className={`${fullscreen ? 'min-h-0 flex-1 p-2 pb-8' : 'max-h-[58vh] p-2'} overflow-y-auto`}>
+          <div
+            className={`${fullscreen ? 'min-h-0 flex-1 p-2 pb-8' : 'max-h-[58vh] p-2'} overflow-y-auto`}
+          >
             {items.map((item) => {
               const active = selected?.file === item.file
               return (
@@ -427,12 +502,15 @@ export default function ComparePanel({ logs, fullscreen = false }) {
                   key={item.file}
                   onClick={() => setSelectedFile(item.file)}
                   className={`interactive-row compare-record-item mb-1 w-full rounded-xl border px-3 py-2 text-left ${
-                    active ? 'choice-active' : 'border-transparent hover:border-stone-200 hover:bg-white/70'
+                    active
+                      ? 'choice-active'
+                      : 'border-transparent hover:border-stone-200 hover:bg-white/70'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 text-[10px] font-black text-stone-400">
-                      {item.format?.toUpperCase() ?? (isImage(item.file) ? 'IMG' : isAudio(item.file) ? 'AUD' : 'FILE')}
+                      {item.format?.toUpperCase() ??
+                        (isImage(item.file) ? 'IMG' : isAudio(item.file) ? 'AUD' : 'FILE')}
                     </span>
                     <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-stone-700">
                       {basename(item.file)}
@@ -449,14 +527,20 @@ export default function ComparePanel({ logs, fullscreen = false }) {
         </aside>
 
         {selected && (
-          <section className={`${fullscreen ? 'min-h-0 overflow-y-auto p-4 pb-12' : 'p-4'} min-w-0 rounded-2xl border border-stone-100 bg-stone-50`}>
+          <section
+            className={`${fullscreen ? 'min-h-0 overflow-y-auto p-4 pb-12' : 'p-4'} min-w-0 rounded-2xl border border-stone-100 bg-stone-50`}
+          >
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-black text-stone-500">
-                    {selected.format?.toUpperCase() ?? (selectedIsImage ? 'IMG' : selectedIsAudio ? 'AUD' : 'FILE')}
+                    {selected.format?.toUpperCase() ??
+                      (selectedIsImage ? 'IMG' : selectedIsAudio ? 'AUD' : 'FILE')}
                   </span>
-                  <h3 className="truncate font-mono text-sm font-bold text-stone-800" title={selected.file}>
+                  <h3
+                    className="truncate font-mono text-sm font-bold text-stone-800"
+                    title={selected.file}
+                  >
                     {basename(selected.file)}
                   </h3>
                 </div>
@@ -466,20 +550,29 @@ export default function ComparePanel({ logs, fullscreen = false }) {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => copyPath(selected.file)} className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500">
+                <button
+                  onClick={() => copyPath(selected.file)}
+                  className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500"
+                >
                   复制路径
                 </button>
-                <button onClick={() => openSelectedLocation(selected.file)} className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500">
+                <button
+                  onClick={() => openSelectedLocation(selected.file)}
+                  className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500"
+                >
                   打开位置
                 </button>
                 {selectedIsImage && (
-                  <button onClick={() => setModalItem(selected)} className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500">
+                  <button
+                    onClick={() => setModalItem(selected)}
+                    className="interactive-ghost rounded-2xl bg-white px-3 py-1.5 text-xs text-stone-500"
+                  >
                     放大
                   </button>
                 )}
                 <button
                   onClick={() => restore(selected)}
-                  disabled={isRestored || isLoading || !backupExists}
+                  disabled={isRestored || isLoading || isDeleting || !backupExists}
                   className={`rounded-2xl px-3 py-1.5 text-xs font-medium ${
                     isRestored
                       ? 'bg-stone-100 text-stone-400'
@@ -488,7 +581,24 @@ export default function ComparePanel({ logs, fullscreen = false }) {
                         : 'bg-stone-100 text-stone-400'
                   } disabled:cursor-not-allowed disabled:opacity-60`}
                 >
-                  {isLoading ? '还原中' : isRestored ? '已还原' : backupExists ? '还原' : '备份缺失'}
+                  {isLoading
+                    ? '还原中'
+                    : isRestored
+                      ? '已还原'
+                      : backupExists
+                        ? '还原'
+                        : '备份缺失'}
+                </button>
+                <button
+                  onClick={() => deleteBackup(selected)}
+                  disabled={isLoading || isDeleting || !backupExists}
+                  className={`rounded-2xl px-3 py-1.5 text-xs font-medium ${
+                    backupExists
+                      ? 'interactive-danger bg-red-50 text-red-500'
+                      : 'bg-stone-100 text-stone-400'
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                >
+                  {isDeleting ? '删除中' : backupExists ? '删除备份' : '备份缺失'}
                 </button>
               </div>
             </div>

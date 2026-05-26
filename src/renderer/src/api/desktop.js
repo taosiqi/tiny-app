@@ -53,6 +53,8 @@ export const compareFiles = (leftPath, rightPath) =>
   invoke('compare_files', { payload: { leftPath, rightPath } })
 export const restoreFile = (backupPath, originalPath) =>
   invoke('restore_file', { payload: { backupPath, originalPath } })
+export const deleteBackupFile = (backupPath, originalPath) =>
+  invoke('delete_backup_file', { payload: { backupPath, originalPath } })
 export const openInFinder = (filePath) => invoke('open_in_finder', { filePath })
 
 export const onImageTotal = (cb) => subscribe('compress:image:total', cb)

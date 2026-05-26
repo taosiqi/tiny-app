@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PropTypes from 'prop-types'
-import { getAppSettings, syncWindowTheme, updateAppSettings, updateNativeTheme } from '../api/desktop'
+import {
+  getAppSettings,
+  syncWindowTheme,
+  updateAppSettings,
+  updateNativeTheme
+} from '../api/desktop'
 import { SettingsContext } from './settingsStateContext'
 
-const DEFAULT_SETTINGS = { nightMode: 'system', closeBehavior: 'background' }
+const DEFAULT_SETTINGS = {
+  nightMode: 'system',
+  closeBehavior: 'background',
+  backupDirName: '_tiny_backup'
+}
 
 const getResolvedNightMode = (mode) => {
   if (mode === 'dark') return 'dark'

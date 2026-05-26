@@ -23,6 +23,7 @@ describe('ToastProvider', () => {
   })
 
   it('renders and closes toast messages', () => {
+    vi.useFakeTimers()
     render(
       <ToastProvider>
         <ToastHarness />
@@ -33,10 +34,14 @@ describe('ToastProvider', () => {
 
     expect(screen.getByText('保存失败')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '关闭提示' }))
+    expect(screen.getByText('保存失败')).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(180)
+    })
     expect(screen.queryByText('保存失败')).not.toBeInTheDocument()
   })
 
-  it('removes toast messages automatically', () => {
+  it('removes toast messages automatically after the exit animation', () => {
     vi.useFakeTimers()
     render(
       <ToastProvider>
@@ -50,6 +55,26 @@ describe('ToastProvider', () => {
     act(() => {
       vi.advanceTimersByTime(3300)
     })
+    expect(screen.getByText('保存成功')).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(180)
+    })
     expect(screen.queryByText('保存成功')).not.toBeInTheDocument()
+  })
+
+  it('keeps persistent toast messages until dismissed', () => {
+    vi.useFakeTimers()
+    render(
+      <ToastProvider>
+        <ToastHarness />
+      </ToastProvider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'show error' }))
+    act(() => {
+      vi.advanceTimersByTime(10000)
+    })
+
+    expect(screen.getByText('保存失败')).toBeInTheDocument()
   })
 })

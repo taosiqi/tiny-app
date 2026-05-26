@@ -1,4 +1,8 @@
-use serde::{Deserialize, Serialize};
+mod models;
+mod platform;
+mod settings;
+
+use models::*;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -12,234 +16,25 @@ use std::{
     time::UNIX_EPOCH,
 };
 use tauri::{
-    image::Image,
-    menu::{AboutMetadata, AboutMetadataBuilder, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::{MouseButton, MouseButtonState, TrayIconEvent},
     window::Color,
     AppHandle, Emitter, Manager, State, WindowEvent,
+};
+
+use platform::{
+    create_app_menu, create_status_bar, open_external, open_in_finder, quit_from_setting,
+    show_main_window,
+};
+use settings::{
+    current_backup_dir_name, is_valid_backup_dir_name, load_settings, normalize_settings,
+    normalize_tinypng_keys, persist_settings, should_hide_instead_of_quit, AppSettings,
+    SettingsState, StoredTinypngKey, DEFAULT_BACKUP_DIR_NAME,
 };
 
 #[derive(Default)]
 struct TaskState {
     stop_image: AtomicBool,
     stop_audio: AtomicBool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AppSettings {
-    #[serde(default = "default_night_mode")]
-    night_mode: String,
-    #[serde(default = "default_close_behavior")]
-    close_behavior: String,
-    #[serde(default)]
-    tinypng_keys: Vec<StoredTinypngKey>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct StoredTinypngKey {
-    value: String,
-    compression_count: Option<u32>,
-}
-
-fn default_night_mode() -> String {
-    "system".into()
-}
-
-fn default_close_behavior() -> String {
-    "background".into()
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            night_mode: default_night_mode(),
-            close_behavior: default_close_behavior(),
-            tinypng_keys: Vec::new(),
-        }
-    }
-}
-
-struct SettingsState {
-    config_path: PathBuf,
-    value: Mutex<AppSettings>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ImagePayload {
-    paths: Vec<String>,
-    api_keys: Vec<String>,
-    recursive: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AudioPayload {
-    paths: Vec<String>,
-    format: String,
-    recursive: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RestorePayload {
-    backup_path: String,
-    original_path: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BackupStatusPayload {
-    original_path: String,
-    backup_path: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ComparePayload {
-    left_path: String,
-    right_path: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct ProgressItem {
-    file: String,
-    backup_path: Option<String>,
-    format: Option<String>,
-    status: String,
-    input_size: Option<String>,
-    output_size: Option<String>,
-    input_bytes: Option<u64>,
-    output_bytes: Option<u64>,
-    saved: Option<String>,
-    reason: Option<String>,
-    error: Option<String>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct Stats {
-    total: usize,
-    processed: usize,
-    skipped: usize,
-    failed: usize,
-    saved_bytes: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct KeyCount {
-    key: String,
-    compression_count: u32,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct PausedPayload {
-    remaining: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct BackupStatus {
-    original_path: String,
-    backup_path: Option<String>,
-    original_exists: bool,
-    backup_exists: bool,
-    original_size: Option<String>,
-    backup_size: Option<String>,
-    original_bytes: Option<u64>,
-    backup_bytes: Option<u64>,
-    original_modified: Option<u64>,
-    backup_modified: Option<u64>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct ImageMetadata {
-    width: Option<u32>,
-    height: Option<u32>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct AudioMetadata {
-    duration: Option<String>,
-    codec: Option<String>,
-    sample_rate: Option<String>,
-    channels: Option<String>,
-    bitrate: Option<String>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct FileMetadata {
-    path: String,
-    name: String,
-    extension: Option<String>,
-    kind: String,
-    exists: bool,
-    size: Option<String>,
-    bytes: Option<u64>,
-    modified: Option<u64>,
-    sha256: Option<String>,
-    image: Option<ImageMetadata>,
-    audio: Option<AudioMetadata>,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct TextDiffLine {
-    kind: String,
-    left: Option<String>,
-    right: Option<String>,
-    line: usize,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct CompareResult {
-    left: FileMetadata,
-    right: FileMetadata,
-    same_hash: Option<bool>,
-    size_delta: Option<i64>,
-    text_diff: Option<Vec<TextDiffLine>>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct KeyCheckResult {
-    valid: bool,
-    compression_count: Option<u32>,
-    remaining: Option<i32>,
-    error: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TinifyShrinkResponse {
-    input: TinifySize,
-    output: TinifyOutput,
-}
-
-#[derive(Debug, Deserialize)]
-struct TinifySize {
-    size: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct TinifyOutput {
-    size: u64,
-    url: String,
-}
-
-#[derive(Debug)]
-struct TinifyError {
-    status: Option<u16>,
-    compression_count: Option<u32>,
-    message: String,
 }
 
 type AppResult<T> = Result<T, String>;
@@ -299,7 +94,9 @@ fn sync_window_theme(app: AppHandle, mode: String) -> AppResult<()> {
     };
 
     if let Some(window) = app.get_webview_window("main") {
-        window.set_background_color(Some(color)).map_err(|e| e.to_string())?;
+        window
+            .set_background_color(Some(color))
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -365,10 +162,15 @@ fn stop_audio_compression(state: State<'_, TaskState>) {
 }
 
 #[tauri::command]
-fn get_backup_status(payload: BackupStatusPayload) -> BackupStatus {
+fn get_backup_status(
+    state: State<'_, SettingsState>,
+    payload: BackupStatusPayload,
+) -> BackupStatus {
+    let backup_dir_name = current_backup_dir_name(&state);
     backup_status(
         Path::new(&payload.original_path),
         payload.backup_path.as_deref().map(Path::new),
+        &backup_dir_name,
     )
 }
 
@@ -379,22 +181,34 @@ fn get_file_metadata(app: AppHandle, file_path: String) -> FileMetadata {
 
 #[tauri::command]
 fn compare_files(app: AppHandle, payload: ComparePayload) -> CompareResult {
-    compare_file_pair(&app, Path::new(&payload.left_path), Path::new(&payload.right_path))
+    compare_file_pair(
+        &app,
+        Path::new(&payload.left_path),
+        Path::new(&payload.right_path),
+    )
 }
 
 #[tauri::command]
 async fn compress_image(
     app: AppHandle,
     state: State<'_, TaskState>,
+    settings: State<'_, SettingsState>,
     payload: ImagePayload,
 ) -> AppResult<()> {
     state.stop_image.store(false, Ordering::SeqCst);
     let recursive = payload.recursive.unwrap_or(true);
+    let backup_dir_name = current_backup_dir_name(&settings);
     let mut files = Vec::new();
     for p in &payload.paths {
         let path = Path::new(p);
         if path.is_dir() {
-            collect_files(path, &["png", "jpg", "jpeg"], recursive, &mut files);
+            collect_files(
+                path,
+                &["png", "jpg", "jpeg"],
+                recursive,
+                &backup_dir_name,
+                &mut files,
+            );
         } else if path.exists() {
             files.push(path.to_path_buf());
         }
@@ -416,7 +230,7 @@ async fn compress_image(
             return Ok(());
         }
 
-        let backup_path = backup_file(file);
+        let backup_path = backup_file(file, &backup_dir_name);
         let mut key = pick_key(&payload.api_keys, &exhausted_keys);
         if key.is_none() {
             emit_paused(&app, &files[idx..])?;
@@ -517,10 +331,12 @@ async fn compress_image(
 async fn compress_audio(
     app: AppHandle,
     state: State<'_, TaskState>,
+    settings: State<'_, SettingsState>,
     payload: AudioPayload,
 ) -> AppResult<()> {
     state.stop_audio.store(false, Ordering::SeqCst);
     let recursive = payload.recursive.unwrap_or(true);
+    let backup_dir_name = current_backup_dir_name(&settings);
     let requested_format = normalize_audio_request(&payload.format);
     let exts: &[&str] = if requested_format == "mixed" {
         &["mp3", "ogg", "wav"]
@@ -531,7 +347,7 @@ async fn compress_audio(
     for p in &payload.paths {
         let path = Path::new(p);
         if path.is_dir() {
-            collect_files(path, exts, recursive, &mut files);
+            collect_files(path, exts, recursive, &backup_dir_name, &mut files);
         } else if path.exists() {
             files.push(path.to_path_buf());
         }
@@ -564,7 +380,7 @@ async fn compress_audio(
             continue;
         };
 
-        let backup_path = backup_file(file);
+        let backup_path = backup_file(file, &backup_dir_name);
         let file_for_task = file.clone();
         let format_for_task = actual_format.to_string();
         let ffmpeg_for_task = ffmpeg.clone();
@@ -631,39 +447,11 @@ fn restore_file(payload: RestorePayload) -> AppResult<()> {
 }
 
 #[tauri::command]
-fn open_in_finder(file_path: String) -> AppResult<()> {
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg("-R").arg(&file_path).status();
-
-    #[cfg(target_os = "windows")]
-    let status = Command::new("explorer")
-        .arg(format!("/select,{}", file_path))
-        .status();
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let status = Command::new("xdg-open")
-        .arg(
-            Path::new(&file_path)
-                .parent()
-                .unwrap_or_else(|| Path::new(".")),
-        )
-        .status();
-
-    status.map(|_| ()).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn open_external(url: String) -> AppResult<()> {
-    #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg(url).status();
-
-    #[cfg(target_os = "windows")]
-    let status = Command::new("cmd").args(["/C", "start", "", &url]).status();
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let status = Command::new("xdg-open").arg(url).status();
-
-    status.map(|_| ()).map_err(|e| e.to_string())
+fn delete_backup_file(payload: DeleteBackupPayload) -> AppResult<()> {
+    delete_backup_for_original(
+        Path::new(&payload.original_path),
+        Path::new(&payload.backup_path),
+    )
 }
 
 pub fn run() {
@@ -696,6 +484,7 @@ pub fn run() {
             compress_audio,
             stop_audio_compression,
             restore_file,
+            delete_backup_file,
             open_in_finder,
             open_external,
         ])
@@ -729,17 +518,6 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-#[derive(Debug)]
-struct CompressionResult {
-    success: bool,
-    format: Option<String>,
-    input_size: u64,
-    output_size: u64,
-    saved_bytes: Option<u64>,
-    reason: Option<String>,
-    compression_count: u32,
 }
 
 impl ProgressItem {
@@ -792,205 +570,26 @@ impl ProgressItem {
     }
 }
 
-fn create_status_bar(app: &AppHandle) -> tauri::Result<()> {
-    let open_item = MenuItem::with_id(app, "open", "打开 TinyPress", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open_item, &separator, &quit_item])?;
-    let icon = Image::from_bytes(include_bytes!("../icons/tray-icon.png")).ok();
-
-    let mut builder = TrayIconBuilder::with_id("main")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .tooltip("TinyPress 压缩工作台")
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "open" => show_main_window(app),
-            "quit" => app.exit(0),
-            _ => {}
-        });
-
-    if let Some(icon) = icon {
-        builder = builder.icon(icon).icon_as_template(true);
-    } else {
-        builder = builder.title("TinyPress");
-    }
-
-    builder.build(app)?;
-    Ok(())
-}
-
-fn create_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    let about = PredefinedMenuItem::about(app, Some("关于 TinyPress"), Some(about_metadata(app)))?;
-    let settings = MenuItem::with_id(app, "settings", "设置...", true, None::<&str>)?;
-    let app_quit = MenuItem::with_id(app, "app_quit", "退出", true, None::<&str>)?;
-
-    let app_menu = Submenu::with_items(
-        app,
-        "TinyPress",
-        true,
-        &[
-            &about,
-            &PredefinedMenuItem::separator(app)?,
-            &settings,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::services(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::hide(app, None)?,
-            &PredefinedMenuItem::hide_others(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &app_quit,
-        ],
-    )?;
-    let file_menu = Submenu::with_items(
-        app,
-        "File",
-        true,
-        &[&PredefinedMenuItem::close_window(app, None)?],
-    )?;
-    let edit_menu = Submenu::with_items(
-        app,
-        "Edit",
-        true,
-        &[
-            &PredefinedMenuItem::undo(app, None)?,
-            &PredefinedMenuItem::redo(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::cut(app, None)?,
-            &PredefinedMenuItem::copy(app, None)?,
-            &PredefinedMenuItem::paste(app, None)?,
-            &PredefinedMenuItem::select_all(app, None)?,
-        ],
-    )?;
-    let view_menu = Submenu::with_items(
-        app,
-        "View",
-        true,
-        &[&PredefinedMenuItem::fullscreen(app, None)?],
-    )?;
-    let window_menu = Submenu::with_items(
-        app,
-        "Window",
-        true,
-        &[
-            &PredefinedMenuItem::minimize(app, None)?,
-            &PredefinedMenuItem::maximize(app, None)?,
-            &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::close_window(app, None)?,
-        ],
-    )?;
-    let help_menu = Submenu::with_items(app, "Help", true, &[])?;
-
-    Menu::with_items(
-        app,
-        &[
-            &app_menu,
-            &file_menu,
-            &edit_menu,
-            &view_menu,
-            &window_menu,
-            &help_menu,
-        ],
-    )
-}
-
-fn about_metadata(app: &AppHandle) -> AboutMetadata<'_> {
-    AboutMetadataBuilder::new()
-        .name(Some("TinyPress"))
-        .version(Some(env!("CARGO_PKG_VERSION")))
-        .authors(Some(vec!["taosiqi".into()]))
-        .copyright(Some("Copyright 2026 taosiqi"))
-        .website(Some("https://github.com/taosiqi/tiny-app"))
-        .website_label(Some("GitHub"))
-        .icon(app.default_window_icon().cloned())
-        .build()
-}
-
-fn load_settings(app: &AppHandle) -> (PathBuf, AppSettings) {
-    let config_dir = app
-        .path()
-        .app_config_dir()
-        .unwrap_or_else(|_| std::env::temp_dir().join("TinyPress"));
-    let config_path = config_dir.join("settings.json");
-    let settings = fs::read_to_string(&config_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str::<AppSettings>(&raw).ok())
-        .map(normalize_settings)
-        .unwrap_or_default();
-
-    (config_path, settings)
-}
-
-fn normalize_settings(settings: AppSettings) -> AppSettings {
-    let night_mode = match settings.night_mode.as_str() {
-        "system" | "dark" | "light" => settings.night_mode,
-        _ => AppSettings::default().night_mode,
-    };
-    let close_behavior = match settings.close_behavior.as_str() {
-        "background" | "quit" => settings.close_behavior,
-        _ => AppSettings::default().close_behavior,
-    };
-
-    AppSettings {
-        night_mode,
-        close_behavior,
-        tinypng_keys: normalize_tinypng_keys(settings.tinypng_keys),
-    }
-}
-
-fn normalize_tinypng_keys(keys: Vec<StoredTinypngKey>) -> Vec<StoredTinypngKey> {
-    keys.into_iter()
-        .map(|key| StoredTinypngKey {
-            value: key.value,
-            compression_count: key.compression_count,
-        })
-        .collect()
-}
-
-fn persist_settings(path: &Path, settings: &AppSettings) -> AppResult<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
-}
-
-fn should_hide_instead_of_quit(app: &AppHandle) -> bool {
-    app.state::<SettingsState>()
-        .value
-        .lock()
-        .map(|settings| settings.close_behavior == "background")
-        .unwrap_or(true)
-}
-
-fn quit_from_setting(app: &AppHandle) {
-    if should_hide_instead_of_quit(app) {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.hide();
-        }
-    } else {
-        app.exit(0);
-    }
-}
-
-fn show_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-}
-fn collect_files(dir: &Path, exts: &[&str], recursive: bool, results: &mut Vec<PathBuf>) {
+fn collect_files(
+    dir: &Path,
+    exts: &[&str],
+    recursive: bool,
+    backup_dir_name: &str,
+    results: &mut Vec<PathBuf>,
+) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            if path.file_name().is_some_and(|name| name == "_tiny_backup") {
+            if path.file_name().is_some_and(|name| {
+                name == DEFAULT_BACKUP_DIR_NAME || name == std::ffi::OsStr::new(backup_dir_name)
+            }) {
                 continue;
             }
             if recursive {
-                collect_files(&path, exts, recursive, results);
+                collect_files(&path, exts, recursive, backup_dir_name, results);
             }
         } else if path
             .extension()
@@ -1041,16 +640,54 @@ fn skipped_audio_result(file_path: &Path, reason: &str) -> CompressionResult {
     }
 }
 
-fn backup_file(file_path: &Path) -> Option<String> {
+fn backup_file(file_path: &Path, backup_dir_name: &str) -> Option<String> {
     let dir = file_path.parent()?;
     let name = file_path.file_name()?;
-    let backup_dir = dir.join("_tiny_backup");
+    let backup_dir = dir.join(backup_dir_name);
     fs::create_dir_all(&backup_dir).ok()?;
     let backup_path = backup_dir.join(name);
     if !backup_path.exists() {
         fs::copy(file_path, &backup_path).ok()?;
     }
     Some(backup_path.to_string_lossy().to_string())
+}
+
+fn delete_backup_for_original(original: &Path, backup: &Path) -> AppResult<()> {
+    let original_name = original
+        .file_name()
+        .ok_or_else(|| "原文件路径无效".to_string())?;
+    if backup.file_name() != Some(original_name) {
+        return Err("备份文件名必须与原文件名一致".into());
+    }
+
+    let original_parent = original
+        .parent()
+        .ok_or_else(|| "原文件路径无效".to_string())?;
+    let backup_parent = backup
+        .parent()
+        .ok_or_else(|| "备份路径必须位于备份目录内".to_string())?;
+    let backup_grandparent = backup_parent
+        .parent()
+        .ok_or_else(|| "备份路径必须位于原文件同级目录内".to_string())?;
+
+    let original_parent = fs::canonicalize(original_parent).map_err(|e| e.to_string())?;
+    let backup_grandparent = fs::canonicalize(backup_grandparent).map_err(|e| e.to_string())?;
+    if original_parent != backup_grandparent {
+        return Err("只能删除原文件同级备份目录内的备份".into());
+    }
+    let backup_dir_name = backup_parent
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "备份目录名无效".to_string())?;
+    if !is_valid_backup_dir_name(backup_dir_name) {
+        return Err("备份目录名无效".into());
+    }
+
+    match fs::remove_file(backup) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 fn format_size(bytes: u64) -> String {
@@ -1111,12 +748,18 @@ fn emit_audio_paused(app: &AppHandle, remaining: &[PathBuf]) -> AppResult<()> {
     .map_err(|e| e.to_string())
 }
 
-fn backup_status(original: &Path, backup_override: Option<&Path>) -> BackupStatus {
+fn backup_status(
+    original: &Path,
+    backup_override: Option<&Path>,
+    backup_dir_name: &str,
+) -> BackupStatus {
     let backup_path = backup_override
         .map(Path::to_path_buf)
-        .or_else(|| expected_backup_path(original));
+        .or_else(|| expected_backup_path(original, backup_dir_name));
     let original_meta = fs::metadata(original).ok();
-    let backup_meta = backup_path.as_ref().and_then(|path| fs::metadata(path).ok());
+    let backup_meta = backup_path
+        .as_ref()
+        .and_then(|path| fs::metadata(path).ok());
 
     BackupStatus {
         original_path: original.to_string_lossy().to_string(),
@@ -1134,11 +777,11 @@ fn backup_status(original: &Path, backup_override: Option<&Path>) -> BackupStatu
     }
 }
 
-fn expected_backup_path(file_path: &Path) -> Option<PathBuf> {
+fn expected_backup_path(file_path: &Path, backup_dir_name: &str) -> Option<PathBuf> {
     Some(
         file_path
             .parent()?
-            .join("_tiny_backup")
+            .join(backup_dir_name)
             .join(file_path.file_name()?),
     )
 }
@@ -1275,8 +918,7 @@ fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
             let width = u16::from_be_bytes(bytes[index + 7..index + 9].try_into().ok()?) as u32;
             return Some((width, height));
         }
-        let segment_len =
-            u16::from_be_bytes(bytes[index + 2..index + 4].try_into().ok()?) as usize;
+        let segment_len = u16::from_be_bytes(bytes[index + 2..index + 4].try_into().ok()?) as usize;
         if segment_len < 2 {
             return None;
         }
@@ -1295,7 +937,9 @@ fn audio_metadata(path: &Path, ffmpeg: &Path) -> AudioMetadata {
 
     AudioMetadata {
         duration: parse_duration(&text),
-        codec: audio_line.and_then(|line| after_audio(line).and_then(|value| value.split(',').next().map(trim_string))),
+        codec: audio_line.and_then(|line| {
+            after_audio(line).and_then(|value| value.split(',').next().map(trim_string))
+        }),
         sample_rate: audio_line.and_then(|line| pick_segment(line, "Hz")),
         channels: audio_line.and_then(parse_channels),
         bitrate: audio_line.and_then(|line| pick_segment(line, "kb/s")),
@@ -1613,9 +1257,11 @@ mod tests {
         fs::write(root.join("nested").join("c.JPG"), b"x").unwrap();
         fs::create_dir(root.join("_tiny_backup")).unwrap();
         fs::write(root.join("_tiny_backup").join("d.png"), b"x").unwrap();
+        fs::create_dir(root.join("custom_backup")).unwrap();
+        fs::write(root.join("custom_backup").join("e.png"), b"x").unwrap();
 
         let mut files = Vec::new();
-        collect_files(root, &["png", "jpg"], true, &mut files);
+        collect_files(root, &["png", "jpg"], true, "custom_backup", &mut files);
         let names: Vec<String> = files
             .iter()
             .filter_map(|path| path.file_name())
@@ -1625,7 +1271,27 @@ mod tests {
         assert!(names.contains(&"a.png".to_string()));
         assert!(names.contains(&"c.JPG".to_string()));
         assert!(!names.contains(&"d.png".to_string()));
+        assert!(!names.contains(&"e.png".to_string()));
         assert_eq!(names.len(), 2);
+    }
+
+    #[test]
+    fn creates_backup_with_default_and_custom_dir_name() {
+        let dir = tempdir().unwrap();
+        let original = dir.path().join("a.png");
+        fs::write(&original, b"original").unwrap();
+
+        let default_backup = backup_file(&original, DEFAULT_BACKUP_DIR_NAME).unwrap();
+        assert_eq!(
+            PathBuf::from(default_backup),
+            dir.path().join(DEFAULT_BACKUP_DIR_NAME).join("a.png")
+        );
+
+        let custom_backup = backup_file(&original, "custom_backup").unwrap();
+        assert_eq!(
+            PathBuf::from(custom_backup),
+            dir.path().join("custom_backup").join("a.png")
+        );
     }
 
     #[test]
@@ -1633,11 +1299,23 @@ mod tests {
         assert_eq!(normalize_audio_request("mixed"), "mixed");
         assert_eq!(normalize_audio_request("mp3"), "mp3");
         assert_eq!(normalize_audio_request("bad"), "mixed");
-        assert_eq!(audio_format_for_request(Path::new("song.MP3"), "mixed"), Some("mp3"));
-        assert_eq!(audio_format_for_request(Path::new("song.ogg"), "mixed"), Some("ogg"));
-        assert_eq!(audio_format_for_request(Path::new("song.wav"), "wav"), Some("wav"));
+        assert_eq!(
+            audio_format_for_request(Path::new("song.MP3"), "mixed"),
+            Some("mp3")
+        );
+        assert_eq!(
+            audio_format_for_request(Path::new("song.ogg"), "mixed"),
+            Some("ogg")
+        );
+        assert_eq!(
+            audio_format_for_request(Path::new("song.wav"), "wav"),
+            Some("wav")
+        );
         assert_eq!(audio_format_for_request(Path::new("song.wav"), "mp3"), None);
-        assert_eq!(audio_format_for_request(Path::new("song.flac"), "mixed"), None);
+        assert_eq!(
+            audio_format_for_request(Path::new("song.flac"), "mixed"),
+            None
+        );
     }
 
     #[test]
@@ -1653,15 +1331,43 @@ mod tests {
         let dir = tempdir().unwrap();
         let original = dir.path().join("a.png");
         fs::write(&original, b"original").unwrap();
-        let backup = expected_backup_path(&original).unwrap();
+        let backup = expected_backup_path(&original, DEFAULT_BACKUP_DIR_NAME).unwrap();
         fs::create_dir_all(backup.parent().unwrap()).unwrap();
         fs::write(&backup, b"backup").unwrap();
 
-        let status = backup_status(&original, None);
+        let status = backup_status(&original, None, DEFAULT_BACKUP_DIR_NAME);
         assert!(status.original_exists);
         assert!(status.backup_exists);
         assert_eq!(status.original_bytes, Some(8));
         assert_eq!(status.backup_bytes, Some(6));
+    }
+
+    #[test]
+    fn deletes_only_matching_sibling_backup_file() {
+        let dir = tempdir().unwrap();
+        let original = dir.path().join("a.png");
+        fs::write(&original, b"original").unwrap();
+        let backup_dir = dir.path().join("custom_backup");
+        fs::create_dir(&backup_dir).unwrap();
+        let backup = backup_dir.join("a.png");
+        fs::write(&backup, b"backup").unwrap();
+
+        delete_backup_for_original(&original, &backup).unwrap();
+        assert!(!backup.exists());
+
+        fs::write(&backup, b"backup").unwrap();
+        let wrong_name = backup_dir.join("b.png");
+        fs::write(&wrong_name, b"backup").unwrap();
+        assert!(delete_backup_for_original(&original, &wrong_name).is_err());
+        assert!(wrong_name.exists());
+
+        let other_dir = tempdir().unwrap();
+        let other_backup_dir = other_dir.path().join("custom_backup");
+        fs::create_dir(&other_backup_dir).unwrap();
+        let other_backup = other_backup_dir.join("a.png");
+        fs::write(&other_backup, b"backup").unwrap();
+        assert!(delete_backup_for_original(&original, &other_backup).is_err());
+        assert!(other_backup.exists());
     }
 
     #[test]

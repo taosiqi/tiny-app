@@ -4,6 +4,7 @@ import { ToastContext } from './toastStateContext'
 
 const TOAST_LIMIT = 3
 const DEFAULT_DURATION = 3200
+const EXIT_DURATION = 180
 const TYPE_LABEL = {
   success: '完成',
   error: '错误',
@@ -21,20 +22,37 @@ function nextToastId() {
 export function ToastProvider({ children }) {
   const [items, setItems] = useState([])
   const timers = useRef(new Map())
+  const exitTimers = useRef(new Map())
 
-  const dismiss = useCallback((id) => {
-    const timer = timers.current.get(id)
-    if (timer) window.clearTimeout(timer)
-    timers.current.delete(id)
+  const remove = useCallback((id) => {
+    const exitTimer = exitTimers.current.get(id)
+    if (exitTimer) window.clearTimeout(exitTimer)
+    exitTimers.current.delete(id)
     setItems((prev) => prev.filter((item) => item.id !== id))
   }, [])
+
+  const dismiss = useCallback(
+    (id) => {
+      const timer = timers.current.get(id)
+      if (timer) window.clearTimeout(timer)
+      timers.current.delete(id)
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, status: 'leaving' } : item))
+      )
+      if (!exitTimers.current.has(id)) {
+        const exitTimer = window.setTimeout(() => remove(id), EXIT_DURATION)
+        exitTimers.current.set(id, exitTimer)
+      }
+    },
+    [remove]
+  )
 
   const notify = useCallback(
     (type, message, options = {}) => {
       if (!message) return null
       const id = nextToastId()
       const duration = options.duration ?? DEFAULT_DURATION
-      const item = { id, type, message }
+      const item = { id, type, message, status: 'visible' }
 
       setItems((prev) => [...prev, item].slice(-TOAST_LIMIT))
       if (duration > 0) {
@@ -50,6 +68,8 @@ export function ToastProvider({ children }) {
     () => () => {
       timers.current.forEach((timer) => window.clearTimeout(timer))
       timers.current.clear()
+      exitTimers.current.forEach((timer) => window.clearTimeout(timer))
+      exitTimers.current.clear()
     },
     []
   )
@@ -70,7 +90,13 @@ export function ToastProvider({ children }) {
       {children}
       <div className="toast-viewport" role="status" aria-live="polite" aria-atomic="false">
         {items.map((item) => (
-          <div key={item.id} className={`toast-card toast-${item.type}`}>
+          <div
+            key={item.id}
+            className={`toast-card toast-${item.type} ${item.status === 'leaving' ? 'toast-leaving' : ''}`}
+            onAnimationEnd={(event) => {
+              if (event.currentTarget === event.target && item.status === 'leaving') remove(item.id)
+            }}
+          >
             <div className="min-w-0">
               <div className="toast-label">{TYPE_LABEL[item.type] ?? TYPE_LABEL.info}</div>
               <div className="toast-message">{item.message}</div>
