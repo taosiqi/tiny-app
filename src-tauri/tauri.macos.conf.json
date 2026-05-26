@@ -1,5 +1,5 @@
 {
   "bundle": {
-    "resources": ["../node_modules/ffmpeg-static/ffmpeg"]
+    "resources": ["../node_modules/ffmpeg-static/ffmpeg", "../resources/如何打开应用.txt"]
   }
 }
