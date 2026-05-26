@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "TinyPress",
-  "version": "1.2.0",
+  "version": "../package.json",
   "identifier": "com.taosiqi.tiny-app",
   "build": {
     "beforeDevCommand": "pnpm vite:dev",
@@ -26,9 +26,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "**"
-        ]
+        "scope": ["**"]
       }
     }
   },
@@ -42,8 +40,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../node_modules/ffmpeg-static/ffmpeg"
-    ]
+    "resources": ["../node_modules/ffmpeg-static/ffmpeg"]
   }
 }
