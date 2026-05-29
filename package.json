@@ -1,7 +1,7 @@
 {
   "name": "tiny-app",
-  "version": "1.2.2",
-  "description": "一款基于 Tauri 的桌面工具，支持 TinyPNG 图片压缩与音频文件压缩",
+  "version": "2.0.0",
+  "description": "一款基于 Tauri 的本地文件优化工作台，支持统一任务队列、TinyPNG 图片压缩与音频压缩",
   "author": {
     "name": "taosiqi",
     "email": "hksiqijson@gmail.com"

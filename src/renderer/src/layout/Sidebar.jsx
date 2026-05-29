@@ -22,7 +22,7 @@ export default function Sidebar({ appVersion }) {
   }
 
   return (
-    <aside className="app-sidebar w-72 shrink-0 rounded-[2rem] border border-white/60 bg-white/70 p-4 shadow-[0_24px_80px_rgba(30,41,59,0.16)] backdrop-blur-2xl">
+    <aside className="app-sidebar w-full shrink-0 rounded-[2rem] border border-white/60 bg-white/70 p-4 shadow-[0_24px_80px_rgba(30,41,59,0.16)] backdrop-blur-2xl md:w-72">
       <div className="brand-card rounded-[1.5rem] px-5 py-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
           <span className="rounded-full border border-stone-200 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-stone-500">

@@ -336,7 +336,7 @@ main {
 
 @keyframes app-rise {
   from {
-    opacity: 0;
+    opacity: 1;
     transform: translateY(10px) scale(0.99);
   }
   to {
@@ -842,4 +842,74 @@ main {
 :root[data-night='dark'] .compare-record-item:not(.choice-active):hover [class*='text-stone'],
 :root[data-night='dark'] .compare-record-item.choice-active [class*='text-stone'] {
   color: #f5f5f4 !important;
+}
+
+.task-panel,
+.task-card {
+  color: #292524;
+  background: rgba(255, 255, 255, 0.68) !important;
+  background-color: rgba(255, 255, 255, 0.68) !important;
+  border-color: rgba(41, 37, 36, 0.14) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.task-card-active,
+.task-pill,
+.task-panel .tab-active {
+  color: var(--theme-ink) !important;
+  background: color-mix(in srgb, var(--theme-accent) 12%, white) !important;
+  background-color: color-mix(in srgb, var(--theme-accent) 12%, white) !important;
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, transparent) !important;
+}
+
+.task-input {
+  color: #292524 !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(41, 37, 36, 0.18) !important;
+}
+
+:root:not([data-night='dark']) .task-panel [class*='text-stone-400'],
+:root:not([data-night='dark']) .task-panel [class*='text-stone-500'] {
+  color: #57534e !important;
+}
+
+:root:not([data-night='dark']) .task-panel [class*='text-stone-600'],
+:root:not([data-night='dark']) .task-panel [class*='text-stone-700'],
+:root:not([data-night='dark']) .task-panel [class*='text-stone-800'],
+:root:not([data-night='dark']) .task-panel [class*='text-stone-900'],
+:root:not([data-night='dark']) .task-panel [class*='text-stone-950'] {
+  color: #1c1917 !important;
+}
+
+:root[data-night='dark'] .task-panel,
+:root[data-night='dark'] .task-card {
+  color: #f5f5f4;
+  background: rgba(38, 38, 38, 0.72) !important;
+  background-color: rgba(38, 38, 38, 0.72) !important;
+  border-color: rgba(250, 250, 249, 0.16) !important;
+}
+
+:root[data-night='dark'] .task-card-active,
+:root[data-night='dark'] .task-pill,
+:root[data-night='dark'] .task-panel .tab-active {
+  color: #d1fae5 !important;
+  background: rgba(6, 78, 59, 0.58) !important;
+  background-color: rgba(6, 78, 59, 0.58) !important;
+  border-color: rgba(52, 211, 153, 0.42) !important;
+}
+
+:root[data-night='dark'] .task-input {
+  color: #f5f5f4 !important;
+  background: rgba(28, 25, 23, 0.74) !important;
+  background-color: rgba(28, 25, 23, 0.74) !important;
+  border-color: rgba(250, 250, 249, 0.18) !important;
+}
+
+:root[data-night='dark'] .task-panel [class*='text-stone-400'],
+:root[data-night='dark'] .task-panel [class*='text-stone-500'],
+:root[data-night='dark'] .task-panel [class*='text-stone-600'] {
+  color: #d6d3d1 !important;
 }

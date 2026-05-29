@@ -9,6 +9,7 @@ test.beforeEach(async ({ page }) => {
 test('image flow validates stored key, compresses, compares, and deletes backup', async ({
   page
 }) => {
+  await page.getByRole('link', { name: /图片压缩/ }).click()
   await expect(page.getByText('自动校验完成：1/1 个 Key 可用')).toBeVisible()
   await expect(page.getByText('剩余 488')).toBeVisible()
 
