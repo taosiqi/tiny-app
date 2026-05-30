@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ComparePanel from './ComparePanel'
+import RuntimeHealthPanel from './RuntimeHealthPanel'
 import { useToast } from '../toast/useToast'
 import {
   compressAudio,
   compressImage,
-  getTinypngKeys,
   onAudioDone,
   onAudioPaused,
   onAudioProgress,
@@ -28,10 +28,13 @@ import {
   loadTaskHistory,
   saveTaskHistory
 } from '../tasks/taskHistory'
+import { DEFAULT_TASK_PRESET, TASK_PRESETS } from '../tasks/taskPresets'
+import { getValidTinypngKeyValues, useTinypngKeys } from '../tinypng/useTinypngKeys'
+import { useSettings } from '../settings/useSettings'
+import { AppButton, AppCard, AppInput, AppPanel, AppSelect, AppTabs, EmptyState } from './ui/base'
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg']
 const AUDIO_EXTENSIONS = ['mp3', 'ogg', 'wav']
-const KEY_LIMIT = 500
 const REPORT_COLUMNS = [
   'kind',
   'status',
@@ -43,21 +46,6 @@ const REPORT_COLUMNS = [
   'reason',
   'error'
 ]
-
-const PRESETS = {
-  balanced: {
-    label: '平衡',
-    desc: '保留备份，图片走 TinyPNG，音频使用混合策略'
-  },
-  compact: {
-    label: '最小体积',
-    desc: '优先缩小体积，适合批量交付前清理'
-  },
-  audit: {
-    label: '验证优先',
-    desc: '执行后保留完整结果，便于逐项对比'
-  }
-}
 
 function getExtension(path) {
   const name = path.split(/[\\/]/).pop() ?? ''
@@ -130,9 +118,11 @@ function buildCsv(logs) {
 export default function TaskCenter() {
   const toast = useToast()
   const navigate = useNavigate()
+  const { settings } = useSettings()
   const [paths, setPaths] = useState([])
-  const [keys, setKeys] = useState([])
-  const [preset, setPreset] = useState('balanced')
+  const { keys, setKeys } = useTinypngKeys()
+  const [presetOverride, setPresetOverride] = useState(null)
+  const preset = presetOverride ?? settings.taskPreset ?? DEFAULT_TASK_PRESET
   const [recursive, setRecursive] = useState(true)
   const [running, setRunning] = useState(false)
   const [currentKind, setCurrentKind] = useState(null)
@@ -149,36 +139,11 @@ export default function TaskCenter() {
     latestLogsRef.current = logs
   }, [logs])
 
-  useEffect(() => {
-    let active = true
-    getTinypngKeys()
-      .then((items) => {
-        if (active) setKeys(Array.isArray(items) ? items : [])
-      })
-      .catch(() => {
-        if (active) setKeys([])
-      })
-    return () => {
-      active = false
-    }
-  }, [])
-
   const grouped = useMemo(() => {
     return groupPaths(paths)
   }, [paths])
 
-  const validKeys = useMemo(
-    () =>
-      keys
-        .filter((key) => key.value?.trim())
-        .sort((a, b) => {
-          const aRemaining = KEY_LIMIT - (a.compressionCount ?? 0)
-          const bRemaining = KEY_LIMIT - (b.compressionCount ?? 0)
-          return bRemaining - aRemaining
-        })
-        .map((key) => key.value.trim()),
-    [keys]
-  )
+  const validKeys = useMemo(() => getValidTinypngKeyValues(keys), [keys])
 
   const addFiles = async () => {
     const files = await openFiles({
@@ -446,23 +411,18 @@ export default function TaskCenter() {
     const textMatch =
       !query ||
       (item.logs ?? []).some((log) => log.file?.toLowerCase().includes(query)) ||
-      PRESETS[item.preset]?.label?.toLowerCase().includes(query)
+      TASK_PRESETS[item.preset]?.label?.toLowerCase().includes(query)
     return statusMatch && textMatch
   })
 
   const successLogs = logs.filter((item) => item.status === 'success')
   const failedLogs = logs.filter((item) => item.status === 'error')
-  const skippedLogs = logs.filter((item) => item.status === 'skipped')
-  const remainingKeyUses = keys.reduce(
-    (sum, key) => sum + Math.max(0, KEY_LIMIT - (key.compressionCount ?? 0)),
-    0
-  )
   const totalPlanned = paths.length
 
   return (
     <div className="flex h-full flex-col overflow-hidden px-4 py-5 md:px-7 md:py-6">
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(320px,0.92fr)_minmax(360px,1.08fr)] lg:overflow-hidden">
-        <section className="task-panel flex min-h-0 flex-col overflow-hidden rounded-3xl border p-5">
+        <AppPanel className="flex min-h-0 flex-col overflow-hidden p-5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-stone-800">任务中心</h3>
@@ -470,18 +430,17 @@ export default function TaskCenter() {
                 统一加入文件，按类型自动分派图片与音频压缩。
               </p>
             </div>
-            <span className="task-pill rounded-full px-2.5 py-1 text-xs font-bold">2.0</span>
           </div>
 
           <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {Object.entries(PRESETS).map(([id, item]) => (
+            {Object.entries(TASK_PRESETS).map(([id, item]) => (
               <button
                 key={id}
                 type="button"
-                onClick={() => setPreset(id)}
+                onClick={() => setPresetOverride(id)}
                 disabled={running}
-                className={`task-card rounded-2xl border px-3 py-2 text-left transition-colors ${
-                  preset === id ? 'task-card-active' : 'interactive-ghost'
+                className={`app-card rounded-2xl border px-3 py-2 text-left transition-colors ${
+                  preset === id ? 'app-card-active' : 'interactive-ghost'
                 }`}
               >
                 <span className="block text-xs font-bold text-stone-800">{item.label}</span>
@@ -513,9 +472,9 @@ export default function TaskCenter() {
           </div>
 
           {paths.length === 0 ? (
-            <div className="task-card flex flex-1 items-center justify-center rounded-2xl border border-dashed text-sm text-stone-500">
+            <EmptyState className="flex flex-1 items-center justify-center">
               添加 PNG、JPG、MP3、OGG、WAV 文件或目录
-            </div>
+            </EmptyState>
           ) : (
             <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
               {paths.map((path) => {
@@ -523,7 +482,7 @@ export default function TaskCenter() {
                 return (
                   <li
                     key={path}
-                    className="task-card flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm"
+                    className="app-card flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm"
                   >
                     <span className="w-10 shrink-0 text-[11px] font-black text-stone-400">
                       {kind === 'image' ? 'IMG' : kind === 'audio' ? 'AUD' : 'DIR'}
@@ -549,18 +508,18 @@ export default function TaskCenter() {
           )}
 
           <div className="mt-4 grid grid-cols-3 gap-2">
-            <div className="task-card rounded-2xl border px-3 py-2">
+            <AppCard className="px-3 py-2">
               <span className="block text-[11px] text-stone-400">图片</span>
               <span className="text-lg font-black text-stone-900">{grouped.image.length}</span>
-            </div>
-            <div className="task-card rounded-2xl border px-3 py-2">
+            </AppCard>
+            <AppCard className="px-3 py-2">
               <span className="block text-[11px] text-stone-400">音频</span>
               <span className="text-lg font-black text-stone-900">{grouped.audio.length}</span>
-            </div>
-            <div className="task-card rounded-2xl border px-3 py-2">
+            </AppCard>
+            <AppCard className="px-3 py-2">
               <span className="block text-[11px] text-stone-400">目录/未知</span>
               <span className="text-lg font-black text-stone-900">{grouped.unknown.length}</span>
-            </div>
+            </AppCard>
           </div>
 
           <label className="mt-3 flex w-fit cursor-pointer select-none items-center gap-2">
@@ -591,31 +550,20 @@ export default function TaskCenter() {
               开始统一处理
             </button>
           )}
-        </section>
+        </AppPanel>
 
-        <section className="task-panel flex min-h-0 flex-col overflow-hidden rounded-3xl border">
+        <AppPanel className="flex min-h-0 flex-col overflow-hidden">
           <div className="flex shrink-0 items-center justify-between border-b border-stone-100 px-4 py-2.5">
-            <div className="flex gap-1">
-              {[
+            <AppTabs
+              value={activePanel}
+              onChange={setActivePanel}
+              items={[
                 ['queue', '处理日志'],
                 ['compare', '结果对比'],
                 ['history', '历史记录'],
                 ['health', '健康面板']
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setActivePanel(id)}
-                  className={`rounded-2xl px-3 py-1.5 text-xs transition-colors ${
-                    activePanel === id
-                      ? 'tab-active font-medium'
-                      : 'interactive-ghost text-stone-400'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+              ].map(([id, label]) => ({ id, label }))}
+            />
             <span className="text-xs text-stone-400">
               {running
                 ? `${currentKind === 'image' ? '图片' : '音频'}处理中 ${logs.length}/${
@@ -638,50 +586,54 @@ export default function TaskCenter() {
                       ['跳过', stats.skipped],
                       ['失败', stats.failed]
                     ].map(([label, value]) => (
-                      <div key={label} className="task-card rounded-2xl border px-3 py-2">
+                      <AppCard key={label} className="px-3 py-2">
                         <span className="block text-[11px] text-emerald-700">{label}</span>
                         <span className="text-lg font-black text-stone-900">{value}</span>
-                      </div>
+                      </AppCard>
                     ))}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button
+                    <AppButton
                       type="button"
                       onClick={retryFailed}
                       disabled={running || failedLogs.length === 0}
-                      className="interactive-danger rounded-xl bg-red-50 px-2.5 py-1.5 text-xs text-red-500 disabled:opacity-40"
+                      variant="danger"
+                      className="px-2.5 py-1.5 text-xs"
                     >
                       重试失败 ({failedLogs.length})
-                    </button>
-                    <button
+                    </AppButton>
+                    <AppButton
                       type="button"
                       onClick={restoreSuccess}
                       disabled={running || successLogs.length === 0}
-                      className="interactive-ghost rounded-xl bg-stone-100 px-2.5 py-1.5 text-xs text-stone-600 disabled:opacity-40"
+                      variant="secondary"
+                      className="px-2.5 py-1.5 text-xs"
                     >
                       批量还原 ({successLogs.length})
-                    </button>
-                    <button
+                    </AppButton>
+                    <AppButton
                       type="button"
                       onClick={() => exportReport('json')}
-                      className="interactive-button rounded-xl bg-sky-100 px-2.5 py-1.5 text-xs text-stone-950"
+                      variant="primary"
+                      className="px-2.5 py-1.5 text-xs"
                     >
                       导出 JSON
-                    </button>
-                    <button
+                    </AppButton>
+                    <AppButton
                       type="button"
                       onClick={() => exportReport('csv')}
-                      className="interactive-ghost rounded-xl bg-stone-100 px-2.5 py-1.5 text-xs text-stone-600"
+                      variant="secondary"
+                      className="px-2.5 py-1.5 text-xs"
                     >
                       导出 CSV
-                    </button>
+                    </AppButton>
                   </div>
                 </div>
               )}
 
               {logs.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center text-sm text-stone-400">
-                  任务启动后会在这里实时显示每个文件的结果
+                <div className="flex flex-1 items-center justify-center p-4">
+                  <EmptyState>任务启动后会在这里实时显示每个文件的结果</EmptyState>
                 </div>
               ) : (
                 <ul className="min-h-0 flex-1 divide-y divide-stone-100 overflow-y-auto">
@@ -736,9 +688,9 @@ export default function TaskCenter() {
               {successLogs.length > 0 ? (
                 <ComparePanel logs={successLogs} />
               ) : (
-                <div className="flex h-full items-center justify-center text-sm text-stone-400">
+                <EmptyState className="flex h-full items-center justify-center">
                   有成功压缩记录后可在这里查看压缩前后对比
-                </div>
+                </EmptyState>
               )}
             </div>
           )}
@@ -750,47 +702,46 @@ export default function TaskCenter() {
                   最近 {history.length} 次任务
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
-                  <input
+                  <AppInput
                     type="search"
                     value={historyQuery}
                     onChange={(event) => setHistoryQuery(event.target.value)}
                     placeholder="搜索路径"
                     aria-label="搜索历史路径"
-                    className="task-input w-32 rounded-xl border px-2 py-1 text-xs outline-none focus:border-[var(--theme-accent)]"
+                    className="w-32 py-1 text-xs"
                   />
-                  <select
+                  <AppSelect
                     value={historyFilter}
                     onChange={(event) => setHistoryFilter(event.target.value)}
                     aria-label="历史筛选"
-                    className="task-input rounded-xl border px-2 py-1 text-xs outline-none focus:border-[var(--theme-accent)]"
+                    className="py-1 text-xs"
                   >
                     <option value="all">全部</option>
                     <option value="success">无失败</option>
                     <option value="failed">有失败</option>
-                  </select>
-                  <button
+                  </AppSelect>
+                  <AppButton
                     type="button"
                     onClick={clearHistory}
                     disabled={history.length === 0}
-                    className="interactive-ghost rounded bg-stone-100 px-2 py-0.5 text-xs text-stone-500 disabled:opacity-40"
+                    variant="secondary"
+                    className="rounded-xl px-2 py-1 text-xs"
                   >
                     清空历史
-                  </button>
+                  </AppButton>
                 </div>
               </div>
               {filteredHistory.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-stone-200 py-10 text-center text-sm text-stone-400">
-                  暂无任务历史
-                </div>
+                <EmptyState>暂无任务历史</EmptyState>
               ) : (
                 <ul className="space-y-2">
                   {filteredHistory.map((item) => (
-                    <li key={item.id} className="task-card rounded-2xl border p-3">
+                    <AppCard key={item.id} as="li" className="p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-bold text-stone-800">
                             {new Date(item.finishedAt).toLocaleString('zh-CN')} ·{' '}
-                            {PRESETS[item.preset]?.label ?? '任务'}
+                            {TASK_PRESETS[item.preset]?.label ?? '任务'}
                           </div>
                           <div className="mt-1 text-xs text-stone-500">
                             输入 {item.inputCount}，成功 {item.stats.processed}，跳过{' '}
@@ -798,38 +749,41 @@ export default function TaskCenter() {
                           </div>
                         </div>
                         <div className="flex shrink-0 gap-2">
-                          <button
+                          <AppButton
                             type="button"
                             onClick={() => {
                               setLogs(item.logs ?? [])
                               setStats(item.stats)
                               setActivePanel('compare')
                             }}
-                            className="interactive-button rounded-xl bg-sky-100 px-2.5 py-1.5 text-xs text-stone-950"
+                            variant="primary"
+                            className="px-2.5 py-1.5 text-xs"
                           >
                             查看
-                          </button>
-                          <button
+                          </AppButton>
+                          <AppButton
                             type="button"
                             onClick={() => {
                               setLogs(item.logs ?? [])
                               setStats(item.stats)
                               setActivePanel('queue')
                             }}
-                            className="interactive-ghost rounded-xl bg-stone-100 px-2.5 py-1.5 text-xs text-stone-600"
+                            variant="secondary"
+                            className="px-2.5 py-1.5 text-xs"
                           >
                             载入
-                          </button>
-                          <button
+                          </AppButton>
+                          <AppButton
                             type="button"
                             onClick={() => deleteHistory(item.id)}
-                            className="interactive-danger rounded-xl bg-red-50 px-2.5 py-1.5 text-xs text-red-500"
+                            variant="danger"
+                            className="px-2.5 py-1.5 text-xs"
                           >
                             删除
-                          </button>
+                          </AppButton>
                         </div>
                       </div>
-                    </li>
+                    </AppCard>
                   ))}
                 </ul>
               )}
@@ -838,42 +792,8 @@ export default function TaskCenter() {
 
           {activePanel === 'health' && (
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="task-card rounded-2xl border px-4 py-3">
-                  <span className="block text-xs font-semibold text-stone-600">TinyPNG Key</span>
-                  <span className="mt-2 block text-2xl font-black text-stone-950">
-                    {validKeys.length}
-                  </span>
-                  <span className="text-xs text-stone-500">
-                    已配置 Key，预计剩余额度 {remainingKeyUses} 次
-                  </span>
-                </div>
-                <div className="task-card rounded-2xl border px-4 py-3">
-                  <span className="block text-xs font-semibold text-stone-600">音频引擎</span>
-                  <span className="mt-2 block text-2xl font-black text-stone-950">ffmpeg</span>
-                  <span className="text-xs text-stone-500">混合模式会自动处理 MP3 / OGG / WAV</span>
-                </div>
-                <div className="task-card rounded-2xl border px-4 py-3">
-                  <span className="block text-xs font-semibold text-stone-500">当前队列</span>
-                  <span className="mt-2 block text-2xl font-black text-stone-950">
-                    {paths.length}
-                  </span>
-                  <span className="text-xs text-stone-500">
-                    图片 {grouped.image.length} · 音频 {grouped.audio.length} · 目录/未知{' '}
-                    {grouped.unknown.length}
-                  </span>
-                </div>
-                <div className="task-card rounded-2xl border px-4 py-3">
-                  <span className="block text-xs font-semibold text-stone-500">最近结果</span>
-                  <span className="mt-2 block text-2xl font-black text-stone-950">
-                    {logs.length}
-                  </span>
-                  <span className="text-xs text-stone-500">
-                    成功 {successLogs.length} · 跳过 {skippedLogs.length} · 失败 {failedLogs.length}
-                  </span>
-                </div>
-              </div>
-              <div className="task-card mt-4 rounded-2xl border p-4">
+              <RuntimeHealthPanel />
+              <AppCard className="mt-4 p-4">
                 <div className="mb-2 text-sm font-bold text-stone-800">发布检查</div>
                 <div className="space-y-2 text-xs text-stone-500">
                   <div className="flex items-center justify-between">
@@ -893,22 +813,50 @@ export default function TaskCenter() {
                     <span className="font-semibold text-emerald-700">批量支持</span>
                   </div>
                 </div>
-              </div>
+              </AppCard>
             </div>
           )}
-        </section>
+        </AppPanel>
       </div>
 
-      <div className="task-card mt-4 flex shrink-0 items-center justify-between rounded-2xl border px-4 py-2.5 text-xs text-stone-500">
+      <AppCard className="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-xs text-stone-500">
         <span>TinyPNG Key：{validKeys.length} 个已配置 · 目录会在后端按类型扫描</span>
-        <button
-          type="button"
-          onClick={() => navigate('/png')}
-          className="interactive-link font-semibold text-emerald-700"
-        >
-          管理 Key
-        </button>
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <AppButton
+            type="button"
+            onClick={() => navigate('/settings?tab=image')}
+            variant="ghost"
+            className="px-3 py-1.5 text-xs"
+          >
+            管理 Key
+          </AppButton>
+          <AppButton
+            type="button"
+            onClick={() => setActivePanel('health')}
+            variant="ghost"
+            className="px-3 py-1.5 text-xs"
+          >
+            检查 ffmpeg
+          </AppButton>
+          <AppButton
+            type="button"
+            onClick={() => navigate('/settings?tab=backup')}
+            variant="ghost"
+            className="px-3 py-1.5 text-xs"
+          >
+            打开备份设置
+          </AppButton>
+          <AppButton
+            type="button"
+            onClick={clearHistory}
+            disabled={history.length === 0}
+            variant="ghost"
+            className="px-3 py-1.5 text-xs"
+          >
+            清理历史
+          </AppButton>
+        </div>
+      </AppCard>
     </div>
   )
 }

@@ -10,7 +10,8 @@ export async function installTauriMock(page) {
       settings: {
         nightMode: 'system',
         closeBehavior: 'background',
-        backupDirName: '_tiny_backup'
+        backupDirName: '_tiny_backup',
+        taskPreset: 'balanced'
       },
       keys: [{ value: 'stored-key', compressionCount: null }],
       openFiles: ['/tmp/photo.png'],
@@ -29,7 +30,17 @@ export async function installTauriMock(page) {
 
     async function invoke(command, args = {}) {
       calls.push({ command, args })
-      if (command === 'get_app_version') return '1.2.0'
+      if (command === 'get_app_version') return '2.1.0'
+      if (command === 'get_runtime_health') {
+        return {
+          appVersion: '2.1.0',
+          ffmpegPath: '/tmp/ffmpeg',
+          ffmpegExists: true,
+          ffmpegAvailable: true,
+          backupDirName: state.settings.backupDirName,
+          tinypngKeyCount: state.keys.filter((key) => key.value.trim()).length
+        }
+      }
       if (command === 'get_app_settings') return state.settings
       if (command === 'update_app_settings') {
         state.settings = { ...state.settings, ...args.settings }

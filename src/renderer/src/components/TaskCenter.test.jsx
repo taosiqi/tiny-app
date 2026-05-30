@@ -13,6 +13,18 @@ vi.mock('./ComparePanel', () => ({
 
 vi.mock('../api/desktop', () => ({
   getTinypngKeys: vi.fn(() => Promise.resolve([{ value: 'key-a', compressionCount: 10 }])),
+  updateTinypngKeys: vi.fn((keys) => Promise.resolve(keys)),
+  checkTinypngKey: vi.fn(() => Promise.resolve({ valid: true, compressionCount: 12, error: null })),
+  getRuntimeHealth: vi.fn(() =>
+    Promise.resolve({
+      appVersion: '2.1.0',
+      ffmpegPath: '/tmp/ffmpeg',
+      ffmpegExists: true,
+      ffmpegAvailable: true,
+      backupDirName: '_tiny_backup',
+      tinypngKeyCount: 1
+    })
+  ),
   openFiles: vi.fn(() => Promise.resolve(['/tmp/photo.png'])),
   openDirectory: vi.fn(() => Promise.resolve('/tmp/assets')),
   restoreFile: vi.fn(() => Promise.resolve()),
@@ -50,6 +62,10 @@ vi.mock('../api/desktop', () => ({
     listeners.set('audioDone', cb)
     return () => listeners.delete('audioDone')
   }),
+  onAudioPaused: vi.fn((cb) => {
+    listeners.set('audioPaused', cb)
+    return () => listeners.delete('audioPaused')
+  }),
   compressImage: vi.fn(() => {
     listeners.get('imageTotal')?.(1)
     listeners.get('imageProgress')?.({
@@ -71,6 +87,12 @@ vi.mock('../api/desktop', () => ({
     return Promise.resolve()
   }),
   compressAudio: vi.fn(() => Promise.resolve())
+}))
+
+vi.mock('../settings/useSettings', () => ({
+  useSettings: () => ({
+    settings: { taskPreset: 'audit' }
+  })
 }))
 
 function renderTaskCenter() {
@@ -95,8 +117,10 @@ describe('TaskCenter', () => {
     expect(screen.getByText('任务中心')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '+ 添加文件' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '开始统一处理' })).toBeInTheDocument()
-    expect(screen.getByText(/TinyPNG Key：0 个已配置/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /验证优先/ })).toHaveClass('app-card-active')
+    expect(screen.getByText(/TinyPNG Key：\d 个已配置/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '管理 Key' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '检查 ffmpeg' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '历史记录' }))
     expect(screen.getByText('暂无任务历史')).toBeInTheDocument()
   })

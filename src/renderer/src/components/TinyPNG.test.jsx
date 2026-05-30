@@ -90,9 +90,11 @@ describe('TinyPNG', () => {
       </ToastProvider>
     )
 
+    await waitFor(() => expect(getTinypngKeys).toHaveBeenCalled())
     fireEvent.change(screen.getByPlaceholderText('your-api-key'), {
       target: { value: 'manual-key' }
     })
+    await waitFor(() => expect(screen.getByRole('button', { name: '验证' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: '验证' }))
 
     await waitFor(() => expect(checkTinypngKey).toHaveBeenCalledWith('manual-key'))

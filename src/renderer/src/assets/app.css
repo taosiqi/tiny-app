@@ -855,6 +855,116 @@ main {
   -webkit-backdrop-filter: none !important;
 }
 
+.app-panel,
+.app-card {
+  color: #292524;
+  background: rgba(255, 255, 255, 0.68) !important;
+  background-color: rgba(255, 255, 255, 0.68) !important;
+  border-color: rgba(41, 37, 36, 0.14) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app-card-active,
+.app-tab-active {
+  color: var(--theme-ink) !important;
+  background: color-mix(in srgb, var(--theme-accent) 12%, white) !important;
+  background-color: color-mix(in srgb, var(--theme-accent) 12%, white) !important;
+  border-color: color-mix(in srgb, var(--theme-accent) 58%, transparent) !important;
+}
+
+.app-button {
+  border: 1px solid transparent;
+  font-weight: 700;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.app-button-primary {
+  color: var(--button-primary-text);
+  background: var(--button-primary);
+  border-color: var(--button-primary-border);
+}
+
+.app-button-primary:not(:disabled):hover {
+  background: var(--button-primary-hover);
+}
+
+.app-button-secondary,
+.app-button-ghost {
+  color: #57534e;
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(41, 37, 36, 0.14);
+}
+
+.app-button-danger {
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.72);
+  border-color: rgba(248, 113, 113, 0.34);
+}
+
+.app-button-secondary:not(:disabled):hover,
+.app-button-ghost:not(:disabled):hover {
+  color: var(--theme-ink);
+  background: color-mix(in srgb, var(--theme-accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--theme-accent) 38%, transparent);
+}
+
+.app-button-danger:not(:disabled):hover {
+  color: #991b1b;
+  background: rgba(254, 226, 226, 0.78);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+.app-tab {
+  color: #78716c;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease;
+}
+
+.app-input {
+  color: #292524 !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(41, 37, 36, 0.18) !important;
+}
+
+.status-pill-neutral {
+  color: #57534e;
+  background: rgba(231, 229, 228, 0.76);
+}
+
+.status-pill-info {
+  color: #075985;
+  background: rgba(224, 242, 254, 0.86);
+}
+
+.status-pill-success {
+  color: #047857;
+  background: rgba(209, 250, 229, 0.86);
+}
+
+.status-pill-warning {
+  color: #b45309;
+  background: rgba(254, 243, 199, 0.9);
+}
+
+.status-pill-error {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.86);
+}
+
+.empty-state {
+  color: #57534e;
+  border-color: rgba(41, 37, 36, 0.16);
+  background: rgba(255, 255, 255, 0.42);
+}
+
 .task-card-active,
 .task-pill,
 .task-panel .tab-active {
@@ -872,7 +982,11 @@ main {
 }
 
 :root:not([data-night='dark']) .task-panel [class*='text-stone-400'],
-:root:not([data-night='dark']) .task-panel [class*='text-stone-500'] {
+:root:not([data-night='dark']) .task-panel [class*='text-stone-500'],
+:root:not([data-night='dark']) .app-panel [class*='text-stone-400'],
+:root:not([data-night='dark']) .app-panel [class*='text-stone-500'],
+:root:not([data-night='dark']) .app-card [class*='text-stone-400'],
+:root:not([data-night='dark']) .app-card [class*='text-stone-500'] {
   color: #57534e !important;
 }
 
@@ -880,12 +994,24 @@ main {
 :root:not([data-night='dark']) .task-panel [class*='text-stone-700'],
 :root:not([data-night='dark']) .task-panel [class*='text-stone-800'],
 :root:not([data-night='dark']) .task-panel [class*='text-stone-900'],
-:root:not([data-night='dark']) .task-panel [class*='text-stone-950'] {
+:root:not([data-night='dark']) .task-panel [class*='text-stone-950'],
+:root:not([data-night='dark']) .app-panel [class*='text-stone-600'],
+:root:not([data-night='dark']) .app-panel [class*='text-stone-700'],
+:root:not([data-night='dark']) .app-panel [class*='text-stone-800'],
+:root:not([data-night='dark']) .app-panel [class*='text-stone-900'],
+:root:not([data-night='dark']) .app-panel [class*='text-stone-950'],
+:root:not([data-night='dark']) .app-card [class*='text-stone-600'],
+:root:not([data-night='dark']) .app-card [class*='text-stone-700'],
+:root:not([data-night='dark']) .app-card [class*='text-stone-800'],
+:root:not([data-night='dark']) .app-card [class*='text-stone-900'],
+:root:not([data-night='dark']) .app-card [class*='text-stone-950'] {
   color: #1c1917 !important;
 }
 
 :root[data-night='dark'] .task-panel,
-:root[data-night='dark'] .task-card {
+:root[data-night='dark'] .task-card,
+:root[data-night='dark'] .app-panel,
+:root[data-night='dark'] .app-card {
   color: #f5f5f4;
   background: rgba(38, 38, 38, 0.72) !important;
   background-color: rgba(38, 38, 38, 0.72) !important;
@@ -894,22 +1020,86 @@ main {
 
 :root[data-night='dark'] .task-card-active,
 :root[data-night='dark'] .task-pill,
-:root[data-night='dark'] .task-panel .tab-active {
+:root[data-night='dark'] .task-panel .tab-active,
+:root[data-night='dark'] .app-card-active,
+:root[data-night='dark'] .app-tab-active {
   color: #d1fae5 !important;
   background: rgba(6, 78, 59, 0.58) !important;
   background-color: rgba(6, 78, 59, 0.58) !important;
   border-color: rgba(52, 211, 153, 0.42) !important;
 }
 
-:root[data-night='dark'] .task-input {
+:root[data-night='dark'] .task-input,
+:root[data-night='dark'] .app-input {
   color: #f5f5f4 !important;
   background: rgba(28, 25, 23, 0.74) !important;
   background-color: rgba(28, 25, 23, 0.74) !important;
   border-color: rgba(250, 250, 249, 0.18) !important;
 }
 
+:root[data-night='dark'] .app-button-secondary,
+:root[data-night='dark'] .app-button-ghost {
+  color: #d6d3d1;
+  background: rgba(38, 38, 38, 0.74);
+  border-color: rgba(250, 250, 249, 0.16);
+}
+
+:root[data-night='dark'] .app-button-danger {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.38);
+  border-color: rgba(248, 113, 113, 0.38);
+}
+
+:root[data-night='dark'] .app-tab {
+  color: #d6d3d1;
+}
+
+:root[data-night='dark'] .status-pill-neutral,
+:root[data-night='dark'] .status-pill-info {
+  color: #d6d3d1;
+  background: rgba(64, 64, 64, 0.86);
+}
+
+:root[data-night='dark'] .status-pill-success {
+  color: #bbf7d0;
+  background: rgba(6, 78, 59, 0.72);
+}
+
+:root[data-night='dark'] .status-pill-warning {
+  color: #fef3c7;
+  background: rgba(113, 63, 18, 0.72);
+}
+
+:root[data-night='dark'] .status-pill-error {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.66);
+}
+
+:root[data-night='dark'] .empty-state {
+  color: #d6d3d1;
+  background: rgba(38, 38, 38, 0.44);
+  border-color: rgba(250, 250, 249, 0.16);
+}
+
 :root[data-night='dark'] .task-panel [class*='text-stone-400'],
 :root[data-night='dark'] .task-panel [class*='text-stone-500'],
-:root[data-night='dark'] .task-panel [class*='text-stone-600'] {
+:root[data-night='dark'] .task-panel [class*='text-stone-600'],
+:root[data-night='dark'] .app-panel [class*='text-stone-400'],
+:root[data-night='dark'] .app-panel [class*='text-stone-500'],
+:root[data-night='dark'] .app-panel [class*='text-stone-600'],
+:root[data-night='dark'] .app-card [class*='text-stone-400'],
+:root[data-night='dark'] .app-card [class*='text-stone-500'],
+:root[data-night='dark'] .app-card [class*='text-stone-600'] {
   color: #d6d3d1 !important;
+}
+
+:root[data-night='dark'] .app-panel [class*='text-stone-700'],
+:root[data-night='dark'] .app-panel [class*='text-stone-800'],
+:root[data-night='dark'] .app-panel [class*='text-stone-900'],
+:root[data-night='dark'] .app-panel [class*='text-stone-950'],
+:root[data-night='dark'] .app-card [class*='text-stone-700'],
+:root[data-night='dark'] .app-card [class*='text-stone-800'],
+:root[data-night='dark'] .app-card [class*='text-stone-900'],
+:root[data-night='dark'] .app-card [class*='text-stone-950'] {
+  color: #f5f5f4 !important;
 }

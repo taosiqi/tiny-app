@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub close_behavior: String,
     #[serde(default = "default_backup_dir_name")]
     pub backup_dir_name: String,
+    #[serde(default = "default_task_preset")]
+    pub task_preset: String,
     #[serde(default)]
     pub tinypng_keys: Vec<StoredTinypngKey>,
 }
@@ -47,12 +49,17 @@ pub fn default_backup_dir_name() -> String {
     DEFAULT_BACKUP_DIR_NAME.into()
 }
 
+fn default_task_preset() -> String {
+    "balanced".into()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             night_mode: default_night_mode(),
             close_behavior: default_close_behavior(),
             backup_dir_name: default_backup_dir_name(),
+            task_preset: default_task_preset(),
             tinypng_keys: Vec::new(),
         }
     }
@@ -83,11 +90,16 @@ pub fn normalize_settings(settings: AppSettings) -> AppSettings {
         _ => AppSettings::default().close_behavior,
     };
     let backup_dir_name = normalize_backup_dir_name(&settings.backup_dir_name);
+    let task_preset = match settings.task_preset.as_str() {
+        "balanced" | "compact" | "audit" => settings.task_preset,
+        _ => AppSettings::default().task_preset,
+    };
 
     AppSettings {
         night_mode,
         close_behavior,
         backup_dir_name,
+        task_preset,
         tinypng_keys: normalize_tinypng_keys(settings.tinypng_keys),
     }
 }

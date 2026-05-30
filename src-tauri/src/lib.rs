@@ -109,6 +109,31 @@ fn sync_window_theme(app: AppHandle, mode: String) -> AppResult<()> {
 }
 
 #[tauri::command]
+fn get_runtime_health(app: AppHandle, state: State<'_, SettingsState>) -> AppResult<RuntimeHealth> {
+    let ffmpeg_path = find_ffmpeg(&app);
+    let ffmpeg_exists = ffmpeg_path.exists();
+    let ffmpeg_available = Command::new(&ffmpeg_path)
+        .arg("-version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    let settings = state.value.lock().map_err(|e| e.to_string())?;
+
+    Ok(RuntimeHealth {
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        ffmpeg_path: ffmpeg_path.display().to_string(),
+        ffmpeg_exists,
+        ffmpeg_available,
+        backup_dir_name: settings.backup_dir_name.clone(),
+        tinypng_key_count: settings
+            .tinypng_keys
+            .iter()
+            .filter(|key| !key.value.trim().is_empty())
+            .count(),
+    })
+}
+
+#[tauri::command]
 async fn check_tinypng_key(api_key: String) -> AppResult<KeyCheckResult> {
     check_tinypng_key_with_endpoint(api_key, "https://api.tinify.com/shrink").await
 }
@@ -479,6 +504,7 @@ pub fn run() {
             get_app_version,
             get_app_settings,
             update_app_settings,
+            get_runtime_health,
             get_tinypng_keys,
             update_tinypng_keys,
             sync_window_theme,
@@ -1361,6 +1387,7 @@ mod tests {
             night_mode: "invalid".into(),
             close_behavior: "bad".into(),
             backup_dir_name: "../bad".into(),
+            task_preset: "bad".into(),
             tinypng_keys: vec![StoredTinypngKey {
                 value: "key".into(),
                 compression_count: Some(8),
@@ -1372,6 +1399,7 @@ mod tests {
         assert_eq!(normalized.night_mode, "system");
         assert_eq!(normalized.close_behavior, "background");
         assert_eq!(normalized.backup_dir_name, DEFAULT_BACKUP_DIR_NAME);
+        assert_eq!(normalized.task_preset, "balanced");
         assert_eq!(normalized.tinypng_keys[0].value, "key");
         assert_eq!(normalized.tinypng_keys[0].compression_count, Some(8));
     }
@@ -1384,6 +1412,7 @@ mod tests {
             night_mode: "dark".into(),
             close_behavior: "quit".into(),
             backup_dir_name: "custom_backup".into(),
+            task_preset: "audit".into(),
             tinypng_keys: vec![StoredTinypngKey {
                 value: "key".into(),
                 compression_count: Some(3),
@@ -1394,6 +1423,7 @@ mod tests {
         let raw = fs::read_to_string(path).unwrap();
 
         assert!(raw.contains("\"backupDirName\": \"custom_backup\""));
+        assert!(raw.contains("\"taskPreset\": \"audit\""));
         assert!(raw.contains("\"compressionCount\": 3"));
     }
 

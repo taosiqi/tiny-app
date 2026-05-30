@@ -159,6 +159,17 @@ pub(crate) struct KeyCheckResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeHealth {
+    pub app_version: String,
+    pub ffmpeg_path: String,
+    pub ffmpeg_exists: bool,
+    pub ffmpeg_available: bool,
+    pub backup_dir_name: String,
+    pub tinypng_key_count: usize,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct TinifyShrinkResponse {
     pub input: TinifySize,

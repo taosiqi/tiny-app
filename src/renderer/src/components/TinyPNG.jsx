@@ -8,101 +8,24 @@
  *  - 实时展示每张图片的处理状态与压缩统计
  *  - API Key 列表持久化至 Rust 端设置文件
  */
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { createPortal } from 'react-dom'
-import PropTypes from 'prop-types'
+import { useState, useRef, useCallback } from 'react'
 import ComparePanel from './ComparePanel'
 import CompareFullscreen from './CompareFullscreen'
+import { TinypngKeyManagerView } from './TinypngKeyManager'
 import { useToast } from '../toast/useToast'
 import {
-  checkTinypngKey,
   compressImage,
-  getTinypngKeys,
   onImageDone,
   onImageKeyCount,
   onImagePaused,
   onImageProgress,
   onImageTotal,
   openDirectory,
-  openExternal,
   openFiles,
-  stopImageCompression,
-  updateTinypngKeys
+  stopImageCompression
 } from '../api/desktop'
+import { KEY_LIMIT, useTinypngKeys } from '../tinypng/useTinypngKeys'
 import { basename } from '../utils/fileUtils'
-
-/**
- * Tooltip 组件：通过 Portal 渲染到 body，彻底脱离 overflow-hidden 的裁剪
- */
-Tooltip.propTypes = { text: PropTypes.node }
-function Tooltip({ text }) {
-  const [visible, setVisible] = useState(false)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
-  const triggerRef = useRef(null)
-
-  const show = () => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect()
-      setPos({
-        top: rect.top - 8,
-        left: rect.left + rect.width / 2
-      })
-    }
-    setVisible(true)
-  }
-
-  return (
-    <>
-      <span
-        ref={triggerRef}
-        onMouseEnter={show}
-        onMouseLeave={() => setVisible(false)}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-stone-100 text-stone-400 text-[10px] font-bold cursor-default hover:bg-sky-200 hover:text-emerald-700 transition-colors"
-      >
-        i
-      </span>
-      {visible &&
-        createPortal(
-          <div
-            className="fixed z-99999 pointer-events-none"
-            style={{ top: pos.top, left: pos.left, transform: 'translate(-50%, -100%)' }}
-          >
-            <div className="w-64 px-3 py-2 rounded-2xl bg-stone-900 text-white text-[11px] leading-relaxed shadow-lg">
-              {text}
-              <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-stone-900" />
-            </div>
-          </div>,
-          document.body
-        )}
-    </>
-  )
-}
-
-/** 旧版本 localStorage 键名，仅用于一次性迁移。 */
-const STORAGE_KEY = 'tinypng_keys'
-
-/**
- * 从旧 localStorage 加载已保存的 API Key 列表
- *
- * 恢复时将运行时状态（status / error）重置为初始值，
- * 避免上次会话的校验结果影响当前会话的 UI 展示。
- *
- * @returns {Array|null} Key 对象数组，若无合法数据则返回 null
- */
-function loadLegacyStoredKeys() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      // 恢复时把运行时状态重置为 idle，避免持久化的旧状态干扰 UI
-      return parsed.map((k) => ({ ...k, status: 'idle', error: null }))
-    }
-  } catch (e) {
-    void e
-  }
-  return null
-}
 
 /** 日志条目状态 → Tailwind 色彩类映射 */
 const STATUS_CLASS = {
@@ -114,9 +37,6 @@ const STATUS_CLASS = {
   pending: 'bg-stone-100 text-stone-500'
 }
 
-/** TinyPNG 每个 API Key 每月免费压缩次数上限 */
-const KEY_LIMIT = 500
-
 /**
  * TinyPNG 图片压缩组件
  *
@@ -124,10 +44,8 @@ const KEY_LIMIT = 500
  */
 export default function TinyPNG() {
   const toast = useToast()
-  const [keys, setKeys] = useState([
-    { value: '', status: 'idle', compressionCount: null, error: null }
-  ])
-  const [keysReady, setKeysReady] = useState(false)
+  const keyController = useTinypngKeys({ autoValidate: true, toast })
+  const { keys, setKeys, validKeyValues } = keyController
   const [paths, setPaths] = useState([])
   const [logs, setLogs] = useState([])
   const [stats, setStats] = useState(null)
@@ -140,7 +58,6 @@ export default function TinyPNG() {
   const [logFilter, setLogFilter] = useState('all')
   const [recursive, setRecursive] = useState(true)
   const logRef = useRef(null)
-  const autoCheckedRef = useRef(false)
 
   /** 将日志容器滚动到底部（延迟 50ms 等待 DOM 更新） */
   const scrollBottom = useCallback(() => {
@@ -148,168 +65,6 @@ export default function TinyPNG() {
       if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
     }, 50)
   }, [])
-
-  useEffect(() => {
-    let active = true
-
-    const loadKeys = async () => {
-      try {
-        const stored = await getTinypngKeys()
-        const legacy = loadLegacyStoredKeys()
-        const next = stored?.length ? stored : legacy
-
-        if (active && next?.length) {
-          const restored = next.map((k) => ({ ...k, status: 'idle', error: null }))
-          const snapshot = restored
-            .map((key, index) => ({ ...key, index, value: key.value.trim() }))
-            .filter((key) => key.value)
-          setKeys(
-            restored.map((key, index) =>
-              snapshot.some((item) => item.index === index) ? { ...key, status: 'checking' } : key
-            )
-          )
-
-          if (!autoCheckedRef.current && snapshot.length > 0) {
-            autoCheckedRef.current = true
-            const results = await Promise.all(
-              snapshot.map(async (key) => {
-                try {
-                  const result = await checkTinypngKey(key.value)
-                  return { key, result }
-                } catch (error) {
-                  return {
-                    key,
-                    result: {
-                      valid: false,
-                      compressionCount: null,
-                      error: error?.message ?? String(error)
-                    }
-                  }
-                }
-              })
-            )
-            if (active) {
-              setKeys((prev) =>
-                prev.map((key, index) => {
-                  const checked = results.find((item) => item.key.index === index)
-                  if (!checked) return key
-                  const { result } = checked
-                  return {
-                    ...key,
-                    status: result.valid ? 'valid' : 'invalid',
-                    compressionCount: result.compressionCount,
-                    error: result.error || null
-                  }
-                })
-              )
-              const validCount = results.filter((item) => item.result.valid).length
-              if (validCount > 0)
-                toast.success(`自动校验完成：${validCount}/${snapshot.length} 个 Key 可用`)
-              else toast.error('自动校验完成：没有可用 Key')
-            }
-          }
-        }
-
-        if (!stored?.length && legacy?.length) {
-          await updateTinypngKeys(
-            legacy.map(({ value, compressionCount }) => ({ value, compressionCount }))
-          )
-          localStorage.removeItem(STORAGE_KEY)
-        }
-      } catch (error) {
-        console.error('[tinypng] failed to load stored keys', error)
-      } finally {
-        if (active) setKeysReady(true)
-      }
-    }
-
-    loadKeys()
-
-    return () => {
-      active = false
-    }
-  }, [toast])
-
-  // keys 变化时持久化到 Rust 设置（只存 value 和 compressionCount，运行时状态不持久化）
-  useEffect(() => {
-    if (!keysReady) return
-    const toStore = keys.map(({ value, compressionCount }) => ({ value, compressionCount }))
-    updateTinypngKeys(toStore).catch((error) => {
-      console.error('[tinypng] failed to persist keys', error)
-    })
-  }, [keys, keysReady])
-
-  /** 更新指定索引的 Key 对象（局部合并更新） */
-  const updateKey = (i, patch) =>
-    setKeys((prev) => prev.map((k, idx) => (idx === i ? { ...k, ...patch } : k)))
-
-  /** 在末尾追加一个空白 Key 输入项 */
-  const addKey = () =>
-    setKeys((prev) => [...prev, { value: '', status: 'idle', compressionCount: null, error: null }])
-
-  /** 删除指定索引的 Key */
-  const removeKey = (i) => setKeys((prev) => prev.filter((_, idx) => idx !== i))
-
-  /**
-   * 校验指定索引的 API Key 有效性
-   * 校验期间将状态置为 'checking'，校验完成后更新为 'valid' 或 'invalid'
-   */
-  const checkKey = async (i) => {
-    const keyVal = keys[i].value.trim()
-    if (!keyVal) return
-    updateKey(i, { status: 'checking', error: null })
-    try {
-      const result = await checkTinypngKey(keyVal)
-      if (result.valid) {
-        updateKey(i, {
-          status: 'valid',
-          compressionCount: result.compressionCount,
-          error: result.error || null
-        })
-        toast.success(`Key 可用，剩余 ${KEY_LIMIT - result.compressionCount} 次`)
-      } else {
-        updateKey(i, { status: 'invalid', error: result.error })
-        toast.error(result.error || 'Key 校验失败')
-      }
-    } catch (error) {
-      updateKey(i, { status: 'invalid', error: error?.message ?? String(error) })
-      toast.error(`Key 校验失败：${error?.message ?? error}`)
-    }
-  }
-
-  const checkAllKeys = async () => {
-    const snapshot = keys
-      .map((k, index) => ({ ...k, index, value: k.value.trim() }))
-      .filter((k) => k.value)
-    if (snapshot.length === 0) {
-      toast.warning('请先填写 TinyPNG API Key')
-      return
-    }
-    snapshot.forEach((key) => updateKey(key.index, { status: 'checking', error: null }))
-    const results = await Promise.all(
-      snapshot.map(async (key) => {
-        try {
-          const result = await checkTinypngKey(key.value)
-          if (result.valid) {
-            updateKey(key.index, {
-              status: 'valid',
-              compressionCount: result.compressionCount,
-              error: result.error || null
-            })
-          } else {
-            updateKey(key.index, { status: 'invalid', error: result.error })
-          }
-          return result.valid
-        } catch (error) {
-          updateKey(key.index, { status: 'invalid', error: error?.message ?? String(error) })
-          return false
-        }
-      })
-    )
-    const validCount = results.filter(Boolean).length
-    if (validCount > 0) toast.success(`校验完成：${validCount}/${snapshot.length} 个 Key 可用`)
-    else toast.error('校验完成：没有可用 Key')
-  }
 
   const addFiles = async () => {
     const files = await openFiles({
@@ -341,14 +96,7 @@ export default function TinyPNG() {
    */
   const startCompress = async (filesToProcess, { isRetry = false } = {}) => {
     const targetFiles = filesToProcess ?? paths
-    const validKeys = [...keys]
-      .filter((k) => k.value.trim())
-      .sort((a, b) => {
-        const aRemaining = KEY_LIMIT - (a.compressionCount ?? 0)
-        const bRemaining = KEY_LIMIT - (b.compressionCount ?? 0)
-        return bRemaining - aRemaining
-      })
-      .map((k) => k.value.trim())
+    const validKeys = validKeyValues
     if (validKeys.length === 0) {
       toast.warning('请先填写 TinyPNG API Key')
       return
@@ -452,118 +200,8 @@ export default function TinyPNG() {
       )}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-7 py-6 gap-4">
         {/* API Keys */}
-        <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 p-5 shrink-0">
-          <div className="flex items-center justify-between mb-3">
-            <label className="text-sm font-medium text-stone-700 flex items-center gap-1.5">
-              API Keys
-              <Tooltip
-                text={
-                  <>
-                    每个账号每月免费压缩 <span className="font-bold text-yellow-300">500</span>{' '}
-                    次，可注册多个账号叠加使用
-                  </>
-                }
-              />
-              <a
-                href="https://tinify.com/developers"
-                className="interactive-link ml-1 cursor-pointer text-xs font-normal text-emerald-700 underline"
-                onClick={(e) => {
-                  e.preventDefault()
-                  openExternal('https://tinify.com/developers').catch((error) =>
-                    toast.error(`打开申请页面失败：${error?.message ?? error}`)
-                  )
-                }}
-              >
-                申请
-              </a>
-            </label>
-            <div className="flex gap-2">
-              <button
-                onClick={checkAllKeys}
-                disabled={running || keys.every((k) => !k.value.trim())}
-                className="interactive-ghost rounded-2xl border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-stone-600 disabled:opacity-50"
-              >
-                校验全部
-              </button>
-              <button
-                onClick={addKey}
-                disabled={running}
-                className="interactive-ghost rounded-2xl border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs text-stone-600 disabled:opacity-50"
-              >
-                + 添加 Key
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {keys.map((k, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={k.value}
-                  onChange={(e) =>
-                    updateKey(i, {
-                      value: e.target.value,
-                      status: 'idle',
-                      compressionCount: null,
-                      error: null
-                    })
-                  }
-                  placeholder="your-api-key"
-                  disabled={running}
-                  className={`flex-1 text-xs border rounded-2xl px-3 py-2 font-mono outline-none transition-colors disabled:opacity-50 ${
-                    k.status === 'valid'
-                      ? 'border-green-300 focus:border-green-400'
-                      : k.status === 'invalid'
-                        ? 'border-red-300 focus:border-red-400'
-                        : 'border-stone-200 focus:border-[var(--theme-accent)]'
-                  }`}
-                />
-
-                {/* 剩余次数徽标 */}
-                {k.status === 'valid' && k.compressionCount !== null && (
-                  <span
-                    className={`shrink-0 text-xs px-2 py-1 rounded-2xl font-medium tabular-nums ${
-                      KEY_LIMIT - k.compressionCount <= 50
-                        ? 'bg-orange-50 text-orange-600'
-                        : 'bg-emerald-50 text-emerald-600'
-                    }`}
-                    title={`已用 ${k.compressionCount} / ${KEY_LIMIT}`}
-                  >
-                    {KEY_LIMIT - k.compressionCount <= 0
-                      ? '已耗尽'
-                      : `剩余 ${KEY_LIMIT - k.compressionCount}`}
-                  </span>
-                )}
-                {k.status === 'invalid' && (
-                  <span className="shrink-0 text-xs text-red-500 max-w-28 truncate" title={k.error}>
-                    {k.error}
-                  </span>
-                )}
-                {k.status === 'valid' && k.error && (
-                  <span className="shrink-0 text-xs text-orange-500">{k.error}</span>
-                )}
-
-                {/* 验证按钮 */}
-                <button
-                  onClick={() => checkKey(i)}
-                  disabled={!k.value.trim() || k.status === 'checking' || running}
-                  className="interactive-button shrink-0 rounded-2xl bg-sky-100 px-2.5 py-1.5 text-xs text-stone-950 disabled:opacity-40"
-                >
-                  {k.status === 'checking' ? '…' : '验证'}
-                </button>
-
-                {/* 删除按钮 */}
-                <button
-                  onClick={() => removeKey(i)}
-                  disabled={running}
-                  className="interactive-danger shrink-0 rounded-full px-1.5 text-sm text-stone-300 disabled:opacity-30"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
+        <section className="shrink-0 rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
+          <TinypngKeyManagerView controller={keyController} disabled={running} />
         </section>
 
         {/* Paths */}

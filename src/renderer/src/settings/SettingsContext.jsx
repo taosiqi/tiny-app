@@ -11,7 +11,8 @@ import { SettingsContext } from './settingsStateContext'
 const DEFAULT_SETTINGS = {
   nightMode: 'system',
   closeBehavior: 'background',
-  backupDirName: '_tiny_backup'
+  backupDirName: '_tiny_backup',
+  taskPreset: 'balanced'
 }
 
 const getResolvedNightMode = (mode) => {
