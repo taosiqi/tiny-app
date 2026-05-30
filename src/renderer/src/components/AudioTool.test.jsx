@@ -15,9 +15,20 @@ vi.mock('../api/desktop', () => ({
   onAudioPaused: vi.fn(() => () => {}),
   onAudioProgress: vi.fn(() => () => {}),
   onAudioTotal: vi.fn(() => () => {}),
-  openDirectory: vi.fn(),
+  openDirectories: vi.fn(async () => []),
   openFiles: vi.fn(async () => []),
   stopAudioCompression: vi.fn()
+}))
+
+vi.mock('../settings/useSettings', () => ({
+  useSettings: () => ({
+    settings: {
+      defaultPresetId: 'balanced',
+      compressionPresets: {
+        balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' }
+      }
+    }
+  })
 }))
 
 describe('AudioTool', () => {
@@ -81,6 +92,7 @@ describe('AudioTool', () => {
       expect(compressAudio).toHaveBeenCalledWith({
         paths: ['/tmp/audio.ogg'],
         format: 'ogg',
+        quality: 'medium',
         recursive: false
       })
     )
@@ -109,6 +121,7 @@ describe('AudioTool', () => {
       expect(compressAudio).toHaveBeenLastCalledWith({
         paths: ['/tmp/audio.mp3'],
         format: 'mp3',
+        quality: 'medium',
         recursive: true
       })
     )
@@ -140,6 +153,7 @@ describe('AudioTool', () => {
       expect(compressAudio).toHaveBeenLastCalledWith({
         paths: ['/tmp/left.mp3'],
         format: 'mixed',
+        quality: 'medium',
         recursive: true
       })
     )

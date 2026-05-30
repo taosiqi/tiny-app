@@ -28,7 +28,7 @@ test('image flow validates stored key, compresses, compares, and deletes backup'
 })
 
 test('settings flow saves custom backup directory', async ({ page }) => {
-  await page.getByRole('link', { name: /偏好中心/ }).click()
+  await page.getByRole('link', { name: /首选项/ }).click()
   await page.getByRole('button', { name: '备份与还原' }).click()
   await page.getByRole('textbox', { name: '备份目录名' }).fill('custom_backup')
   await page.getByRole('button', { name: '保存' }).click()

@@ -1,16 +1,24 @@
-export const TASK_PRESETS = {
-  balanced: {
-    label: '平衡',
-    desc: '保留备份，图片走 TinyPNG，音频使用混合策略'
-  },
-  compact: {
-    label: '最小体积',
-    desc: '优先缩小体积，适合批量交付前清理'
-  },
-  audit: {
-    label: '验证优先',
-    desc: '执行后保留完整结果，便于逐项对比'
-  }
+export const PRESET_IDS = ['compact', 'balanced', 'quality']
+
+export const PRESET_META = {
+  compact: { label: '省空间' },
+  balanced: { label: '平衡' },
+  quality: { label: '高质量' }
 }
 
-export const DEFAULT_TASK_PRESET = 'balanced'
+export const DEFAULT_PRESET_ID = 'balanced'
+
+export const DEFAULT_COMPRESSION_PRESETS = {
+  compact: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'low' },
+  balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' },
+  quality: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'high' }
+}
+
+export function getPreset(settings, presetId = settings.defaultPresetId) {
+  const id = PRESET_IDS.includes(presetId) ? presetId : DEFAULT_PRESET_ID
+  return {
+    id,
+    ...DEFAULT_COMPRESSION_PRESETS[id],
+    ...(settings.compressionPresets?.[id] ?? {})
+  }
+}

@@ -39,7 +39,7 @@ pub fn create_status_bar(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn create_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = PredefinedMenuItem::about(app, Some("关于 TinyPress"), Some(about_metadata(app)))?;
-    let settings = MenuItem::with_id(app, "settings", "设置...", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "首选项...", true, None::<&str>)?;
     let app_quit = MenuItem::with_id(app, "app_quit", "退出", true, None::<&str>)?;
 
     let app_menu = Submenu::with_items(

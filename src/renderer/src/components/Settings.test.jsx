@@ -12,7 +12,12 @@ vi.mock('../settings/useSettings', () => ({
       nightMode: 'system',
       closeBehavior: 'background',
       backupDirName: '_tiny_backup',
-      taskPreset: 'balanced'
+      defaultPresetId: 'balanced',
+      compressionPresets: {
+        compact: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'low' },
+        balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' },
+        quality: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'high' }
+      }
     },
     ready: true,
     saveSettings
@@ -81,17 +86,25 @@ describe('Settings', () => {
   it('shows preference center sections and key manager entry', async () => {
     renderSettings(['/settings?tab=image'])
 
-    expect(screen.getByText('偏好中心')).toBeInTheDocument()
+    expect(screen.getByText('首选项')).toBeInTheDocument()
     expect(screen.getByText('TinyPNG Key')).toBeInTheDocument()
     expect(await screen.findByPlaceholderText('your-api-key')).toBeInTheDocument()
   })
 
-  it('saves the default task preset from general preferences', () => {
-    renderSettings(['/settings'])
+  it('saves editable compression presets', () => {
+    renderSettings(['/settings?tab=presets'])
 
-    fireEvent.click(screen.getByRole('button', { name: /^最小体积/ }))
+    fireEvent.change(screen.getByLabelText('默认预设'), { target: { value: 'compact' } })
+    fireEvent.change(screen.getByLabelText('省空间音频格式'), { target: { value: 'mp3' } })
 
-    expect(saveSettings).toHaveBeenCalledWith({ taskPreset: 'compact' })
-    expect(screen.queryByRole('button', { name: '管理 Key' })).not.toBeInTheDocument()
+    expect(saveSettings).toHaveBeenCalledWith({ defaultPresetId: 'compact' })
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        compressionPresets: expect.objectContaining({
+          compact: expect.objectContaining({ audioFormat: 'mp3' })
+        })
+      })
+    )
+    expect(screen.queryByText('运行状态')).not.toBeInTheDocument()
   })
 })

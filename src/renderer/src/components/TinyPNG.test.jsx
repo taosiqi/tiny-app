@@ -23,11 +23,22 @@ vi.mock('../api/desktop', () => ({
   onImagePaused: vi.fn(() => () => {}),
   onImageProgress: vi.fn(() => () => {}),
   onImageTotal: vi.fn(() => () => {}),
-  openDirectory: vi.fn(),
+  openDirectories: vi.fn(async () => []),
   openExternal: vi.fn(),
   openFiles: vi.fn(async () => []),
   stopImageCompression: vi.fn(),
   updateTinypngKeys: vi.fn(async () => {})
+}))
+
+vi.mock('../settings/useSettings', () => ({
+  useSettings: () => ({
+    settings: {
+      defaultPresetId: 'balanced',
+      compressionPresets: {
+        balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' }
+      }
+    }
+  })
 }))
 
 describe('TinyPNG', () => {
@@ -100,6 +111,13 @@ describe('TinyPNG', () => {
     await waitFor(() => expect(checkTinypngKey).toHaveBeenCalledWith('manual-key'))
     expect(await screen.findByText('已耗尽')).toBeInTheDocument()
     expect(screen.getByText('当月已达上限')).toBeInTheDocument()
+  })
+
+  it('keeps validate and delete key actions the same size', async () => {
+    render(<ToastProvider><TinyPNG /></ToastProvider>)
+    await waitFor(() => expect(getTinypngKeys).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: '验证' })).toHaveClass('h-8', 'w-14')
+    expect(screen.getByRole('button', { name: '删除' })).toHaveClass('h-8', 'w-14')
   })
 
   it('starts image compression with selected files and recursive setting', async () => {

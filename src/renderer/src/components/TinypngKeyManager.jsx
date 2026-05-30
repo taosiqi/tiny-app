@@ -100,7 +100,7 @@ export function TinypngKeyManagerView({
                   checkKey(index, input?.value ?? key.value)
                 }}
                 disabled={disabled || !ready || !key.value.trim() || key.status === 'checking'}
-                className="shrink-0 px-2.5 py-1.5 text-xs"
+                className="h-8 w-14 shrink-0 px-2 text-xs"
               >
                 {key.status === 'checking' ? '...' : '验证'}
               </AppButton>
@@ -109,7 +109,7 @@ export function TinypngKeyManagerView({
                 variant="danger"
                 onClick={() => removeKey(index)}
                 disabled={disabled || !ready}
-                className="shrink-0 px-2 py-1 text-xs"
+                className="h-8 w-14 shrink-0 px-2 text-xs"
               >
                 删除
               </AppButton>

@@ -135,7 +135,7 @@ fn get_runtime_health(app: AppHandle, state: State<'_, SettingsState>) -> AppRes
 
 #[tauri::command]
 async fn check_tinypng_key(api_key: String) -> AppResult<KeyCheckResult> {
-    check_tinypng_key_with_endpoint(api_key, "https://api.tinify.com/shrink").await
+    check_tinypng_key_with_endpoint(api_key, &tinify_endpoint()).await
 }
 
 async fn check_tinypng_key_with_endpoint(
@@ -245,6 +245,8 @@ async fn compress_image(
             files.push(path.to_path_buf());
         }
     }
+    files.sort();
+    files.dedup();
 
     app.emit("compress:image:total", files.len())
         .map_err(|e| e.to_string())?;
@@ -370,6 +372,7 @@ async fn compress_audio(
     let recursive = payload.recursive.unwrap_or(true);
     let backup_dir_name = current_backup_dir_name(&settings);
     let requested_format = normalize_audio_request(&payload.format);
+    let requested_quality = normalize_audio_quality(&payload.quality);
     let exts: &[&str] = if requested_format == "mixed" {
         &["mp3", "ogg", "wav"]
     } else {
@@ -384,6 +387,8 @@ async fn compress_audio(
             files.push(path.to_path_buf());
         }
     }
+    files.sort();
+    files.dedup();
 
     app.emit("compress:audio:total", files.len())
         .map_err(|e| e.to_string())?;
@@ -416,8 +421,14 @@ async fn compress_audio(
         let file_for_task = file.clone();
         let format_for_task = actual_format.to_string();
         let ffmpeg_for_task = ffmpeg.clone();
+        let quality_for_task = requested_quality.to_string();
         let result = tokio::task::spawn_blocking(move || {
-            compress_audio_file(&file_for_task, &format_for_task, &ffmpeg_for_task)
+            compress_audio_file(
+                &file_for_task,
+                &format_for_task,
+                &quality_for_task,
+                &ffmpeg_for_task,
+            )
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -640,6 +651,52 @@ fn normalize_audio_request(format: &str) -> &str {
         "mixed" | "mp3" | "ogg" | "wav" => format,
         _ => "mixed",
     }
+}
+
+fn normalize_audio_quality(quality: &str) -> &str {
+    match quality {
+        "low" | "medium" | "high" => quality,
+        _ => "medium",
+    }
+}
+
+fn audio_ffmpeg_args(format: &str, quality: &str, input: &str, output: &str) -> Vec<String> {
+    let quality = normalize_audio_quality(quality);
+    let values: Vec<&str> = match (format, quality) {
+        ("mp3", "low") => vec![
+            "-i", input, "-b:a", "48k", "-acodec", "mp3", "-ar", "32000", "-ac", "1", output,
+            "-y",
+        ],
+        ("mp3", "high") => vec![
+            "-i", input, "-b:a", "128k", "-acodec", "mp3", "-ar", "44100", "-ac", "2", output,
+            "-y",
+        ],
+        ("mp3", _) => vec![
+            "-i", input, "-b:a", "64k", "-acodec", "mp3", "-ar", "44100", "-ac", "1", output,
+            "-y",
+        ],
+        ("ogg", "low") => vec![
+            "-i", input, "-c:a", "libvorbis", "-b:a", "64k", "-ar", "32000", "-ac", "1", output,
+            "-y",
+        ],
+        ("ogg", "high") => vec![
+            "-i", input, "-c:a", "libvorbis", "-b:a", "160k", "-ar", "44100", "-ac", "2", output,
+            "-y",
+        ],
+        ("ogg", _) => vec![
+            "-i", input, "-c:a", "libvorbis", "-b:a", "96k", "-ar", "44100", output, "-y",
+        ],
+        ("wav", "low") => vec![
+            "-i", input, "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", output, "-y",
+        ],
+        ("wav", "high") => vec![
+            "-i", input, "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", output, "-y",
+        ],
+        _ => vec![
+            "-i", input, "-acodec", "pcm_s16le", "-ar", "22050", "-ac", "1", output, "-y",
+        ],
+    };
+    values.into_iter().map(str::to_string).collect()
 }
 
 fn audio_format_from_path(path: &Path) -> Option<&'static str> {
@@ -1048,7 +1105,7 @@ async fn compress_image_file(
     })?;
     let client = reqwest::Client::new();
     let upload = client
-        .post("https://api.tinify.com/shrink")
+        .post(tinify_endpoint())
         .basic_auth("api", Some(api_key.to_string()))
         .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
         .body(file_data)
@@ -1121,9 +1178,15 @@ async fn compress_image_file(
     }
 }
 
+fn tinify_endpoint() -> String {
+    std::env::var("TINYPRESS_TINIFY_ENDPOINT")
+        .unwrap_or_else(|_| "https://api.tinify.com/shrink".into())
+}
+
 fn compress_audio_file(
     file_path: &Path,
     format: &str,
+    quality: &str,
     ffmpeg: &Path,
 ) -> Result<CompressionResult, String> {
     let original_size = fs::metadata(file_path).map_err(|e| e.to_string())?.len();
@@ -1137,44 +1200,7 @@ fn compress_audio_file(
     let temp = temp_file.to_string_lossy().to_string();
     let input = file_path.to_string_lossy().to_string();
 
-    let mut args: Vec<String> = match format {
-        "mp3" => [
-            "-i", &input, "-b:a", "64k", "-acodec", "mp3", "-ar", "44100", "-ac", "1", &temp, "-y",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect(),
-        "ogg" => [
-            "-i",
-            &input,
-            "-c:a",
-            "libvorbis",
-            "-b:a",
-            "96k",
-            "-ar",
-            "44100",
-            &temp,
-            "-y",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect(),
-        _ => [
-            "-i",
-            &input,
-            "-acodec",
-            "pcm_s16le",
-            "-ar",
-            "22050",
-            "-ac",
-            "1",
-            &temp,
-            "-y",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect(),
-    };
+    let mut args = audio_ffmpeg_args(format, quality, &input, &temp);
 
     let output = Command::new(ffmpeg)
         .args(args.drain(..))
@@ -1387,7 +1413,8 @@ mod tests {
             night_mode: "invalid".into(),
             close_behavior: "bad".into(),
             backup_dir_name: "../bad".into(),
-            task_preset: "bad".into(),
+            default_preset_id: "bad".into(),
+            compression_presets: Default::default(),
             tinypng_keys: vec![StoredTinypngKey {
                 value: "key".into(),
                 compression_count: Some(8),
@@ -1399,7 +1426,8 @@ mod tests {
         assert_eq!(normalized.night_mode, "system");
         assert_eq!(normalized.close_behavior, "background");
         assert_eq!(normalized.backup_dir_name, DEFAULT_BACKUP_DIR_NAME);
-        assert_eq!(normalized.task_preset, "balanced");
+        assert_eq!(normalized.default_preset_id, "balanced");
+        assert_eq!(normalized.compression_presets["compact"].audio_quality, "low");
         assert_eq!(normalized.tinypng_keys[0].value, "key");
         assert_eq!(normalized.tinypng_keys[0].compression_count, Some(8));
     }
@@ -1412,7 +1440,8 @@ mod tests {
             night_mode: "dark".into(),
             close_behavior: "quit".into(),
             backup_dir_name: "custom_backup".into(),
-            task_preset: "audit".into(),
+            default_preset_id: "quality".into(),
+            compression_presets: Default::default(),
             tinypng_keys: vec![StoredTinypngKey {
                 value: "key".into(),
                 compression_count: Some(3),
@@ -1423,7 +1452,7 @@ mod tests {
         let raw = fs::read_to_string(path).unwrap();
 
         assert!(raw.contains("\"backupDirName\": \"custom_backup\""));
-        assert!(raw.contains("\"taskPreset\": \"audit\""));
+        assert!(raw.contains("\"defaultPresetId\": \"quality\""));
         assert!(raw.contains("\"compressionCount\": 3"));
     }
 
@@ -1449,6 +1478,46 @@ mod tests {
             audio_format_for_request(Path::new("song.flac"), "mixed"),
             None
         );
+    }
+
+    #[test]
+    fn maps_audio_quality_to_ffmpeg_arguments() {
+        assert!(audio_ffmpeg_args("mp3", "low", "in", "out").contains(&"48k".into()));
+        assert!(audio_ffmpeg_args("ogg", "medium", "in", "out").contains(&"96k".into()));
+        assert!(audio_ffmpeg_args("wav", "high", "in", "out").contains(&"44100".into()));
+        assert!(audio_ffmpeg_args("wav", "high", "in", "out").contains(&"2".into()));
+    }
+
+    #[test]
+    fn smoke_scans_generated_fixture_directories_without_duplicates() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.tmp/tinypress-fixtures");
+        if !root.exists() {
+            return;
+        }
+        let mut files = Vec::new();
+        collect_files(&root, &["png", "jpg", "jpeg"], true, DEFAULT_BACKUP_DIR_NAME, &mut files);
+        files.sort();
+        files.dedup();
+        assert_eq!(files.len(), 3);
+        assert!(!files.iter().any(|path| path.to_string_lossy().contains("_tiny_backup")));
+    }
+
+    #[test]
+    fn smoke_compresses_generated_audio_fixtures() {
+        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+        let root = project.join(".tmp/tinypress-fixtures");
+        let ffmpeg = project.join("node_modules/ffmpeg-static/ffmpeg");
+        if !root.exists() || !ffmpeg.exists() {
+            return;
+        }
+        let dir = tempdir().unwrap();
+        for (format, quality) in [("mp3", "low"), ("ogg", "medium"), ("wav", "high")] {
+            let source = root.join(format!("sample.{}", format));
+            let target = dir.path().join(format!("sample.{}", format));
+            fs::copy(source, &target).unwrap();
+            let result = compress_audio_file(&target, format, quality, &ffmpeg).unwrap();
+            assert!(result.success || result.reason.is_some());
+        }
     }
 
     #[test]

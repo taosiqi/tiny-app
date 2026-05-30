@@ -13,11 +13,14 @@ import {
   onAudioPaused,
   onAudioProgress,
   onAudioTotal,
-  openDirectory,
+  openDirectories,
   openFiles,
   stopAudioCompression
 } from '../api/desktop'
 import { basename } from '../utils/fileUtils'
+import { useSettings } from '../settings/useSettings'
+import { getPreset, PRESET_IDS, PRESET_META } from '../tasks/taskPresets'
+import { createTaskRecord, finishTaskRecord, upsertTaskRecord } from '../tasks/taskHistory'
 
 const STATUS_CLASS = {
   success: 'bg-green-100 text-emerald-700',
@@ -75,6 +78,9 @@ function statusText(status) {
 
 export default function AudioTool() {
   const toast = useToast()
+  const { settings } = useSettings()
+  const [presetId, setPresetId] = useState(settings.defaultPresetId)
+  const preset = getPreset(settings, presetId)
   const [searchParams, setSearchParams] = useSearchParams()
   const [format, setFormat] = useState(() => normalizeFormat(searchParams.get('format')))
   const meta = FORMAT_META[format]
@@ -87,7 +93,8 @@ export default function AudioTool() {
   const [activeTab, setActiveTab] = useState('log')
   const [compareFullscreen, setCompareFullscreen] = useState(false)
   const [logFilter, setLogFilter] = useState('all')
-  const [recursive, setRecursive] = useState(true)
+  const [recursive, setRecursive] = useState(preset.recursiveScan)
+  const taskRecordRef = useRef(null)
   const logRef = useRef(null)
 
   useEffect(() => {
@@ -114,10 +121,10 @@ export default function AudioTool() {
   }
 
   const addDirectory = async () => {
-    const dir = await openDirectory()
-    if (dir) {
-      setPaths((prev) => [...new Set([...prev, dir])])
-      toast.info('已添加音频目录')
+    const dirs = await openDirectories()
+    if (dirs.length > 0) {
+      setPaths((prev) => [...new Set([...prev, ...dirs])])
+      toast.info(`已添加 ${dirs.length} 个音频目录`)
     }
   }
 
@@ -138,6 +145,14 @@ export default function AudioTool() {
     setPaused(null)
     setTotal(0)
     setRunning(true)
+    const taskRecord = createTaskRecord({
+      source: 'audio',
+      presetId: preset.id,
+      presetSnapshot: { ...preset, audioFormat: format, recursiveScan: recursive },
+      inputCount: targetFiles.length
+    })
+    taskRecordRef.current = taskRecord
+    upsertTaskRecord(taskRecord)
     toast.info(isRetry ? `正在重试 ${targetFiles.length} 个失败项` : '开始压缩音频')
 
     const cleanTotal = onAudioTotal((count) => setTotal(count))
@@ -154,6 +169,12 @@ export default function AudioTool() {
         setLogs((prev) => [...prev, item])
       }
       scrollBottom()
+      const record = taskRecordRef.current
+      if (record) {
+        const next = { ...record, logs: [...record.logs, item] }
+        taskRecordRef.current = next
+        upsertTaskRecord(next)
+      }
     })
     const cleanup = () => {
       cleanTotal()
@@ -165,7 +186,9 @@ export default function AudioTool() {
       setStats(nextStats)
       setRunning(false)
       toast.success(`音频压缩完成：成功 ${nextStats.processed}，失败 ${nextStats.failed}，跳过 ${nextStats.skipped}`)
+      if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, nextStats.failed > 0 ? 'error' : 'success', nextStats, taskRecordRef.current.logs))
       cleanup()
+      if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, 'paused', taskRecordRef.current.stats, taskRecordRef.current.logs))
     })
     const cleanPaused = onAudioPaused(({ remaining }) => {
       setPaused({ remaining })
@@ -184,7 +207,7 @@ export default function AudioTool() {
     })
 
     try {
-      await compressAudio({ paths: targetFiles, format, recursive })
+      await compressAudio({ paths: targetFiles, format, quality: preset.audioQuality, recursive })
     } catch (error) {
       setRunning(false)
       toast.error(`音频压缩失败：${error?.message ?? error}`)
@@ -198,6 +221,10 @@ export default function AudioTool() {
         }
       ])
       cleanup()
+      if (taskRecordRef.current) {
+        const nextLogs = [...taskRecordRef.current.logs, { file: targetFiles[0] ?? `${meta.label}任务`, format, status: 'error', error: error?.message ?? String(error) }]
+        upsertTaskRecord(finishTaskRecord(taskRecordRef.current, 'error', taskRecordRef.current.stats, nextLogs))
+      }
     }
   }
 
@@ -232,6 +259,23 @@ export default function AudioTool() {
               ))}
             </div>
           </div>
+          <label className="mb-3 block text-xs font-bold text-stone-600">
+            压缩预设
+            <select
+              aria-label="压缩预设"
+              value={preset.id}
+              disabled={running}
+              onChange={(event) => {
+                const next = getPreset(settings, event.target.value)
+                setPresetId(next.id)
+                setFormat(next.audioFormat)
+                setRecursive(next.recursiveScan)
+              }}
+              className="app-input ml-2 rounded-xl border px-2 py-1 text-xs"
+            >
+              {PRESET_IDS.map((id) => <option key={id} value={id}>{PRESET_META[id].label}</option>)}
+            </select>
+          </label>
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm font-medium text-stone-700">目标路径</span>
             <div className="flex gap-2">

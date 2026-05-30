@@ -7,6 +7,7 @@ use std::{
 use tauri::{AppHandle, Manager, State};
 
 use crate::AppResult;
+use std::collections::BTreeMap;
 
 pub const DEFAULT_BACKUP_DIR_NAME: &str = "_tiny_backup";
 
@@ -19,10 +20,23 @@ pub struct AppSettings {
     pub close_behavior: String,
     #[serde(default = "default_backup_dir_name")]
     pub backup_dir_name: String,
-    #[serde(default = "default_task_preset")]
-    pub task_preset: String,
+    #[serde(default = "default_preset_id")]
+    pub default_preset_id: String,
+    #[serde(default = "default_compression_presets")]
+    pub compression_presets: BTreeMap<String, CompressionPreset>,
     #[serde(default)]
     pub tinypng_keys: Vec<StoredTinypngKey>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompressionPreset {
+    #[serde(default = "default_true")]
+    pub recursive_scan: bool,
+    #[serde(default = "default_audio_format")]
+    pub audio_format: String,
+    #[serde(default = "default_audio_quality")]
+    pub audio_quality: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -49,8 +63,40 @@ pub fn default_backup_dir_name() -> String {
     DEFAULT_BACKUP_DIR_NAME.into()
 }
 
-fn default_task_preset() -> String {
+fn default_preset_id() -> String {
     "balanced".into()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_audio_format() -> String {
+    "mixed".into()
+}
+
+fn default_audio_quality() -> String {
+    "medium".into()
+}
+
+fn default_compression_presets() -> BTreeMap<String, CompressionPreset> {
+    [
+        ("compact", "low"),
+        ("balanced", "medium"),
+        ("quality", "high"),
+    ]
+    .into_iter()
+    .map(|(id, quality)| {
+        (
+            id.into(),
+            CompressionPreset {
+                recursive_scan: true,
+                audio_format: "mixed".into(),
+                audio_quality: quality.into(),
+            },
+        )
+    })
+    .collect()
 }
 
 impl Default for AppSettings {
@@ -59,7 +105,8 @@ impl Default for AppSettings {
             night_mode: default_night_mode(),
             close_behavior: default_close_behavior(),
             backup_dir_name: default_backup_dir_name(),
-            task_preset: default_task_preset(),
+            default_preset_id: default_preset_id(),
+            compression_presets: default_compression_presets(),
             tinypng_keys: Vec::new(),
         }
     }
@@ -90,18 +137,47 @@ pub fn normalize_settings(settings: AppSettings) -> AppSettings {
         _ => AppSettings::default().close_behavior,
     };
     let backup_dir_name = normalize_backup_dir_name(&settings.backup_dir_name);
-    let task_preset = match settings.task_preset.as_str() {
-        "balanced" | "compact" | "audit" => settings.task_preset,
-        _ => AppSettings::default().task_preset,
+    let default_preset_id = match settings.default_preset_id.as_str() {
+        "balanced" | "compact" | "quality" => settings.default_preset_id,
+        _ => AppSettings::default().default_preset_id,
     };
 
     AppSettings {
         night_mode,
         close_behavior,
         backup_dir_name,
-        task_preset,
+        default_preset_id,
+        compression_presets: normalize_compression_presets(settings.compression_presets),
         tinypng_keys: normalize_tinypng_keys(settings.tinypng_keys),
     }
+}
+
+fn normalize_compression_presets(
+    presets: BTreeMap<String, CompressionPreset>,
+) -> BTreeMap<String, CompressionPreset> {
+    let defaults = default_compression_presets();
+    defaults
+        .iter()
+        .map(|(id, fallback)| {
+            let preset = presets.get(id).unwrap_or(fallback);
+            let audio_format = match preset.audio_format.as_str() {
+                "mixed" | "mp3" | "ogg" | "wav" => preset.audio_format.clone(),
+                _ => fallback.audio_format.clone(),
+            };
+            let audio_quality = match preset.audio_quality.as_str() {
+                "low" | "medium" | "high" => preset.audio_quality.clone(),
+                _ => fallback.audio_quality.clone(),
+            };
+            (
+                id.clone(),
+                CompressionPreset {
+                    recursive_scan: preset.recursive_scan,
+                    audio_format,
+                    audio_quality,
+                },
+            )
+        })
+        .collect()
 }
 
 fn normalize_backup_dir_name(name: &str) -> String {

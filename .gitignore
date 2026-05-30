@@ -14,6 +14,7 @@ src-tauri/gen/schemas/
 *.log*
 .eslintcache
 .vite/
+.tmp/
 
 # OS / editor noise
 .DS_Store

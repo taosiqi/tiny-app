@@ -7,12 +7,28 @@ import {
   updateNativeTheme
 } from '../api/desktop'
 import { SettingsContext } from './settingsStateContext'
+import {
+  DEFAULT_COMPRESSION_PRESETS,
+  DEFAULT_PRESET_ID
+} from '../tasks/taskPresets'
 
 const DEFAULT_SETTINGS = {
   nightMode: 'system',
   closeBehavior: 'background',
   backupDirName: '_tiny_backup',
-  taskPreset: 'balanced'
+  defaultPresetId: DEFAULT_PRESET_ID,
+  compressionPresets: DEFAULT_COMPRESSION_PRESETS
+}
+
+function normalizeClientSettings(settings = {}) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    compressionPresets: {
+      ...DEFAULT_COMPRESSION_PRESETS,
+      ...(settings.compressionPresets ?? {})
+    }
+  }
 }
 
 const getResolvedNightMode = (mode) => {
@@ -29,7 +45,7 @@ export function SettingsProvider({ children }) {
     let active = true
     getAppSettings()
       .then((next) => {
-        if (active) setSettings({ ...DEFAULT_SETTINGS, ...next })
+        if (active) setSettings(normalizeClientSettings(next))
       })
       .catch(() => {})
       .finally(() => {
@@ -69,7 +85,7 @@ export function SettingsProvider({ children }) {
 
       try {
         const persisted = await updateAppSettings(optimistic)
-        setSettings({ ...DEFAULT_SETTINGS, ...persisted })
+        setSettings(normalizeClientSettings(persisted))
       } catch (error) {
         console.error('[settings] failed to persist settings', error)
         setSettings(previous)

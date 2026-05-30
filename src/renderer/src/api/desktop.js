@@ -20,6 +20,9 @@ function runCommand(command, payload) {
 }
 
 export async function openFiles(options = {}) {
+  if (import.meta.env.VITE_TINYPRESS_E2E === '1' && window.__TINYPRESS_E2E_PATHS__?.files) {
+    return window.__TINYPRESS_E2E_PATHS__.files
+  }
   const selected = await open({
     multiple: true,
     directory: false,
@@ -29,9 +32,13 @@ export async function openFiles(options = {}) {
   return Array.isArray(selected) ? selected : [selected]
 }
 
-export async function openDirectory() {
-  const selected = await open({ multiple: false, directory: true })
-  return Array.isArray(selected) ? (selected[0] ?? null) : selected
+export async function openDirectories() {
+  if (import.meta.env.VITE_TINYPRESS_E2E === '1' && window.__TINYPRESS_E2E_PATHS__?.directories) {
+    return window.__TINYPRESS_E2E_PATHS__.directories
+  }
+  const selected = await open({ multiple: true, directory: true })
+  if (!selected) return []
+  return Array.isArray(selected) ? selected : [selected]
 }
 
 export const openExternal = (url) => invoke('open_external', { url })

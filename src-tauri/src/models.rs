@@ -13,6 +13,7 @@ pub(crate) struct ImagePayload {
 pub(crate) struct AudioPayload {
     pub paths: Vec<String>,
     pub format: String,
+    pub quality: String,
     pub recursive: Option<bool>,
 }
 

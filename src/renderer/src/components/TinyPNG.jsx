@@ -20,12 +20,15 @@ import {
   onImagePaused,
   onImageProgress,
   onImageTotal,
-  openDirectory,
+  openDirectories,
   openFiles,
   stopImageCompression
 } from '../api/desktop'
 import { KEY_LIMIT, useTinypngKeys } from '../tinypng/useTinypngKeys'
 import { basename } from '../utils/fileUtils'
+import { useSettings } from '../settings/useSettings'
+import { getPreset } from '../tasks/taskPresets'
+import { createTaskRecord, finishTaskRecord, upsertTaskRecord } from '../tasks/taskHistory'
 
 /** 日志条目状态 → Tailwind 色彩类映射 */
 const STATUS_CLASS = {
@@ -44,6 +47,8 @@ const STATUS_CLASS = {
  */
 export default function TinyPNG() {
   const toast = useToast()
+  const { settings } = useSettings()
+  const defaultPreset = getPreset(settings)
   const keyController = useTinypngKeys({ autoValidate: true, toast })
   const { keys, setKeys, validKeyValues } = keyController
   const [paths, setPaths] = useState([])
@@ -56,7 +61,8 @@ export default function TinyPNG() {
   const [activeTab, setActiveTab] = useState('log')
   const [compareFullscreen, setCompareFullscreen] = useState(false)
   const [logFilter, setLogFilter] = useState('all')
-  const [recursive, setRecursive] = useState(true)
+  const [recursive, setRecursive] = useState(defaultPreset.recursiveScan)
+  const taskRecordRef = useRef(null)
   const logRef = useRef(null)
 
   /** 将日志容器滚动到底部（延迟 50ms 等待 DOM 更新） */
@@ -77,10 +83,10 @@ export default function TinyPNG() {
   }
 
   const addDirectory = async () => {
-    const dir = await openDirectory()
-    if (dir) {
-      setPaths((prev) => [...new Set([...prev, dir])])
-      toast.info('已添加图片目录')
+    const dirs = await openDirectories()
+    if (dirs.length > 0) {
+      setPaths((prev) => [...new Set([...prev, ...dirs])])
+      toast.info(`已添加 ${dirs.length} 个图片目录`)
     }
   }
 
@@ -115,6 +121,14 @@ export default function TinyPNG() {
     setPaused(null)
     setTotal(0)
     setRunning(true)
+    const taskRecord = createTaskRecord({
+      source: 'image',
+      presetId: defaultPreset.id,
+      presetSnapshot: { ...defaultPreset, recursiveScan: recursive },
+      inputCount: targetFiles.length
+    })
+    taskRecordRef.current = taskRecord
+    upsertTaskRecord(taskRecord)
     toast.info(isRetry ? `正在重试 ${targetFiles.length} 个失败项` : '开始压缩图片')
 
     const cleanTotal = onImageTotal((n) => {
@@ -134,6 +148,12 @@ export default function TinyPNG() {
         setLogs((prev) => [...prev, item])
       }
       scrollBottom()
+      const record = taskRecordRef.current
+      if (record) {
+        const next = { ...record, logs: [...record.logs, item] }
+        taskRecordRef.current = next
+        upsertTaskRecord(next)
+      }
     })
     const cleanKeyCount = onImageKeyCount(({ key, compressionCount }) => {
       setKeys((prev) =>
@@ -160,6 +180,7 @@ export default function TinyPNG() {
       setStats(s)
       setRunning(false)
       toast.success(`图片压缩完成：成功 ${s.processed}，失败 ${s.failed}，跳过 ${s.skipped}`)
+      if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, s.failed > 0 ? 'error' : 'success', s, taskRecordRef.current.logs))
       // 任务完成后清理所有 IPC 监听器，防止泄漏
       cleanup()
     })
@@ -168,6 +189,7 @@ export default function TinyPNG() {
       setPaused({ remaining })
       setRunning(false)
       toast.warning(`任务已暂停，剩余 ${remaining.length} 张图片未处理`)
+      if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, 'paused', taskRecordRef.current.stats, taskRecordRef.current.logs))
       cleanup()
     })
 
@@ -184,6 +206,10 @@ export default function TinyPNG() {
           error: error?.message ?? String(error)
         }
       ])
+      if (taskRecordRef.current) {
+        const nextLogs = [...taskRecordRef.current.logs, { file: targetFiles[0] ?? '图片压缩任务', status: 'error', error: error?.message ?? String(error) }]
+        upsertTaskRecord(finishTaskRecord(taskRecordRef.current, 'error', taskRecordRef.current.stats, nextLogs))
+      }
       cleanup()
     }
   }

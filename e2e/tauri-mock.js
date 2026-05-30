@@ -11,11 +11,16 @@ export async function installTauriMock(page) {
         nightMode: 'system',
         closeBehavior: 'background',
         backupDirName: '_tiny_backup',
-        taskPreset: 'balanced'
+        defaultPresetId: 'balanced',
+        compressionPresets: {
+          compact: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'low' },
+          balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' },
+          quality: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'high' }
+        }
       },
       keys: [{ value: 'stored-key', compressionCount: null }],
       openFiles: ['/tmp/photo.png'],
-      openDirectory: '/tmp/images',
+      openDirectories: ['/tmp/images'],
       calls
     }
 
@@ -56,7 +61,7 @@ export async function installTauriMock(page) {
         return { valid: true, compressionCount: 12, remaining: 488, error: null }
       }
       if (command === 'plugin:dialog|open') {
-        return args.options?.directory ? state.openDirectory : state.openFiles
+        return args.options?.directory ? state.openDirectories : state.openFiles
       }
       if (command === 'compress_image') {
         setTimeout(() => emit('compress:image:total', 1), 0)
