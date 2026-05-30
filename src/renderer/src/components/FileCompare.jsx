@@ -8,6 +8,8 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { compareFiles, openFiles, openInFinder } from '../api/desktop'
 import { basename, formatTimestamp } from '../utils/fileUtils'
 import { useToast } from '../toast/useToast'
+import { AppButton, AppPanel, EmptyState } from './ui/base'
+import { PageHeader, PageLayout } from './ui/page'
 
 function toLocalURL(filePath) {
   return filePath ? convertFileSrc(filePath) : ''
@@ -22,23 +24,25 @@ function pickText(result) {
 
 function FilePicker({ label, path, onPick, onClear }) {
   return (
-    <section className="rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
+    <AppPanel className="p-5">
       <div className="mb-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-stone-700">{label}</span>
         <div className="flex gap-2">
-          <button
+          <AppButton
             onClick={onPick}
-            className="interactive-button rounded-2xl bg-sky-100 px-3 py-1.5 text-xs text-stone-950"
+            variant="secondary"
+            className="px-3 py-1.5 text-xs"
           >
             选择文件
-          </button>
+          </AppButton>
           {path && (
-            <button
+            <AppButton
               onClick={onClear}
-              className="interactive-danger rounded-2xl border border-stone-200 px-3 py-1.5 text-xs text-stone-500"
+              variant="danger"
+              className="px-3 py-1.5 text-xs"
             >
               清空
-            </button>
+            </AppButton>
           )}
         </div>
       </div>
@@ -47,11 +51,9 @@ function FilePicker({ label, path, onPick, onClear }) {
           {path}
         </div>
       ) : (
-        <div className="rounded-2xl border border-dashed border-stone-200 py-7 text-center text-sm text-stone-400">
-          尚未选择文件
-        </div>
+        <EmptyState className="py-7">尚未选择文件</EmptyState>
       )}
-    </section>
+    </AppPanel>
   )
 }
 
@@ -90,7 +92,7 @@ function MetadataCard({ title, meta }) {
   ].filter(([, value]) => value)
 
   return (
-    <section className="rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
+    <AppPanel className="p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="truncate text-sm font-bold text-stone-800">{title}</h3>
         <button onClick={openLocation} className="interactive-link shrink-0 rounded-full px-2 py-1 text-xs text-stone-400">
@@ -107,7 +109,7 @@ function MetadataCard({ title, meta }) {
           </div>
         ))}
       </div>
-    </section>
+    </AppPanel>
   )
 }
 
@@ -121,7 +123,7 @@ function ImagePreview({ result }) {
   if (result.left.kind !== 'image' || result.right.kind !== 'image') return null
 
   return (
-    <section className="rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
+    <AppPanel className="p-5">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold text-stone-800">图片对比</h3>
         <span className="text-xs text-stone-400">拖动滑块查看左右文件</span>
@@ -143,7 +145,7 @@ function ImagePreview({ result }) {
           aria-label="图片对比滑块"
         />
       </div>
-    </section>
+    </AppPanel>
   )
 }
 
@@ -153,7 +155,7 @@ function AudioPreview({ result }) {
   if (result.left.kind !== 'audio' || result.right.kind !== 'audio') return null
 
   return (
-    <section className="rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
+    <AppPanel className="p-5">
       <h3 className="mb-3 text-sm font-bold text-stone-800">音频对比</h3>
       <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr]">
         <div className="rounded-2xl border border-stone-200 bg-white px-3 py-2">
@@ -166,7 +168,7 @@ function AudioPreview({ result }) {
           <audio controls src={toLocalURL(result.right.path)} className="h-8 w-full" />
         </div>
       </div>
-    </section>
+    </AppPanel>
   )
 }
 
@@ -186,7 +188,7 @@ function TextDiff({ result }) {
   }
 
   return (
-    <section className="rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
+    <AppPanel className="p-5">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold text-stone-800">文本差异</h3>
         <button
@@ -220,7 +222,7 @@ function TextDiff({ result }) {
           </div>
         ))}
       </div>
-    </section>
+    </AppPanel>
   )
 }
 
@@ -284,7 +286,8 @@ export default function FileCompare() {
   }, [result])
 
   return (
-    <div className="h-full overflow-y-auto px-7 py-6">
+    <PageLayout className="overflow-y-auto">
+      <PageHeader title="文件对比" description="选择两个文件，查看图片、音频、文本或二进制差异。" />
       <div className="space-y-5">
         <div className="grid gap-4 xl:grid-cols-2">
           <FilePicker
@@ -308,24 +311,26 @@ export default function FileCompare() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          <AppButton
             onClick={() => {
               setLeftPath(rightPath)
               setRightPath(leftPath)
               toast.info('已交换左右文件')
             }}
             disabled={!leftPath && !rightPath}
-            className="interactive-button rounded-2xl bg-sky-100 px-4 py-2 text-sm font-semibold text-stone-950 disabled:opacity-40"
+            variant="secondary"
+            className="px-4 py-2 text-sm"
           >
             交换左右文件
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             onClick={clearAll}
             disabled={!leftPath && !rightPath && !result && !error}
-            className="interactive-danger rounded-2xl border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-500 disabled:opacity-60"
+            variant="danger"
+            className="px-4 py-2 text-sm"
           >
             清除全部
-          </button>
+          </AppButton>
           <span className="text-sm text-stone-500">{loading ? '正在对比...' : pickText(result)}</span>
           {result && <span className="text-sm text-stone-400">大小差异：{sizeDelta}</span>}
           {error && <span className="text-sm text-red-500">{error}</span>}
@@ -341,13 +346,13 @@ export default function FileCompare() {
             <AudioPreview result={result} />
             <TextDiff result={result} />
             {result.left.kind === 'binary' || result.right.kind === 'binary' ? (
-              <section className="rounded-3xl border border-white/70 bg-white/72 p-5 text-sm text-stone-600 shadow-sm shadow-stone-900/5">
+              <AppPanel className="p-5 text-sm text-stone-600">
                 二进制判断：{result.sameHash ? 'SHA-256 一致，文件内容相同。' : 'SHA-256 不一致，文件内容不同。'}
-              </section>
+              </AppPanel>
             ) : null}
           </>
         )}
       </div>
-    </div>
+    </PageLayout>
   )
 }

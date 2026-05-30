@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ComparePanel from './ComparePanel'
-import { AppButton, AppCard, AppInput, AppPanel, AppSelect, AppTabs, EmptyState } from './ui/base'
+import { AppButton, AppCard, AppInput, AppPanel, AppTabs, EmptyState } from './ui/base'
+import { PageHeader, PageLayout } from './ui/page'
 import {
   compressAudio, compressImage, onAudioDone, onAudioPaused, onAudioProgress, onAudioTotal,
   onImageDone, onImageKeyCount, onImagePaused, onImageProgress, onImageTotal, openDirectories,
   openFiles, stopAudioCompression, stopImageCompression
 } from '../api/desktop'
 import { useSettings } from '../settings/useSettings'
-import { PRESET_IDS, PRESET_META, getPreset } from '../tasks/taskPresets'
+import { audioPayload, audioSummary, cloneCompression } from '../settings/compressionSettings'
 import {
   clearTaskRecords, createTaskRecord, deleteTaskRecord, finishTaskRecord, loadTaskRecords,
-  upsertTaskRecord
+  updateTaskRecordStats, upsertTaskRecord
 } from '../tasks/taskHistory'
 import { getValidTinypngKeyValues, useTinypngKeys } from '../tinypng/useTinypngKeys'
 import { useToast } from '../toast/useToast'
@@ -64,11 +66,11 @@ function buildCsv(logs) {
 
 export default function TaskCenter() {
   const toast = useToast()
+  const navigate = useNavigate()
   const { settings } = useSettings()
   const { keys, setKeys } = useTinypngKeys()
   const [paths, setPaths] = useState([])
-  const [presetId, setPresetId] = useState(settings.defaultPresetId)
-  const preset = getPreset(settings, presetId)
+  const compression = cloneCompression(settings.compression)
   const [records, setRecords] = useState(() => loadTaskRecords())
   const [selectedId, setSelectedId] = useState(() => loadTaskRecords()[0]?.id ?? null)
   const [activePanel, setActivePanel] = useState('records')
@@ -87,7 +89,16 @@ export default function TaskCenter() {
 
   const appendLog = (kind, item) => {
     if (!recordRef.current) return
-    const next = { ...recordRef.current, logs: [...recordRef.current.logs, { ...item, kind }] }
+    const logs = [...recordRef.current.logs, { ...item, kind }]
+    const next = updateTaskRecordStats(recordRef.current, logs)
+    recordRef.current = next
+    setRecords(upsertTaskRecord(next))
+  }
+
+  const updateTotal = (count, append = false) => {
+    if (!recordRef.current) return
+    const total = append ? recordRef.current.stats.total + count : count
+    const next = updateTaskRecordStats(recordRef.current, recordRef.current.logs, total)
     recordRef.current = next
     setRecords(upsertTaskRecord(next))
   }
@@ -95,29 +106,29 @@ export default function TaskCenter() {
   const runImage = (targets) => new Promise((resolve, reject) => {
     let settled = false
     const cleanup = () => { cleanTotal(); cleanProgress(); cleanKeyCount(); cleanDone(); cleanPaused() }
-    const cleanTotal = onImageTotal(() => {})
+    const cleanTotal = onImageTotal((count) => updateTotal(count))
     const cleanProgress = onImageProgress((item) => appendLog('image', item))
     const cleanKeyCount = onImageKeyCount(({ key, compressionCount }) => setKeys((items) => items.map((item) => item.value.trim() === key ? { ...item, compressionCount } : item)))
     const cleanDone = onImageDone((stats) => { if (!settled) { settled = true; cleanup(); resolve(stats) } })
     const cleanPaused = onImagePaused(() => { if (!settled) { settled = true; cleanup(); resolve(null) } })
-    compressImage({ paths: targets, apiKeys: validKeys, recursive: preset.recursiveScan }).catch((error) => { if (!settled) { settled = true; cleanup(); reject(error) } })
+    compressImage({ paths: targets, apiKeys: validKeys, recursive: compression.image.recursiveScan }).catch((error) => { if (!settled) { settled = true; cleanup(); reject(error) } })
   })
 
   const runAudio = (targets) => new Promise((resolve, reject) => {
     let settled = false
     const cleanup = () => { cleanTotal(); cleanProgress(); cleanDone(); cleanPaused() }
-    const cleanTotal = onAudioTotal(() => {})
+    const cleanTotal = onAudioTotal((count) => updateTotal(count, true))
     const cleanProgress = onAudioProgress((item) => appendLog('audio', item))
     const cleanDone = onAudioDone((stats) => { if (!settled) { settled = true; cleanup(); resolve(stats) } })
     const cleanPaused = onAudioPaused(() => { if (!settled) { settled = true; cleanup(); resolve(null) } })
-    compressAudio({ paths: targets, format: preset.audioFormat, quality: preset.audioQuality, recursive: preset.recursiveScan }).catch((error) => { if (!settled) { settled = true; cleanup(); reject(error) } })
+    compressAudio(audioPayload(targets, compression)).catch((error) => { if (!settled) { settled = true; cleanup(); reject(error) } })
   })
 
   const startBatch = async (overridePaths = paths) => {
     if (overridePaths.length === 0) return toast.warning('请先添加文件或目录')
     const targets = groupPaths(overridePaths)
     if ((targets.image.length > 0 || targets.directory.length > 0) && validKeys.length === 0) return toast.warning('图片压缩需要先填写 TinyPNG API Key')
-    const record = createTaskRecord({ source: 'task-center', presetId: preset.id, presetSnapshot: preset, inputCount: overridePaths.length })
+    const record = createTaskRecord({ source: 'task-center', compressionSnapshot: compression, inputCount: overridePaths.length })
     recordRef.current = record
     setRecords(upsertTaskRecord(record))
     setSelectedId(record.id)
@@ -171,16 +182,11 @@ export default function TaskCenter() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden px-4 py-5 md:px-7 md:py-6">
+    <PageLayout>
+      <PageHeader title="任务中心" description="统一加入文件，按类型自动分派图片与音频压缩。" />
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto lg:grid-cols-[minmax(320px,0.92fr)_minmax(360px,1.08fr)] lg:overflow-hidden">
         <AppPanel className="flex min-h-0 flex-col overflow-hidden p-5">
-          <h3 className="text-sm font-bold text-stone-800">任务中心</h3>
-          <p className="mt-1 text-xs text-stone-500">统一加入文件，按类型自动分派图片与音频压缩。</p>
-          <label className="mt-4 text-xs font-bold text-stone-600">本次预设
-            <AppSelect value={preset.id} onChange={(event) => setPresetId(event.target.value)} disabled={running} className="ml-2 py-1.5 text-xs" aria-label="本次预设">
-              {PRESET_IDS.map((id) => <option key={id} value={id}>{PRESET_META[id].label}</option>)}
-            </AppSelect>
-          </label>
+          <div className="flex items-start justify-between gap-3 text-xs text-stone-500"><span>{audioSummary(compression)}<br />图片递归：{compression.image.recursiveScan ? '开启' : '关闭'}，音频递归：{compression.audio.recursiveScan ? '开启' : '关闭'}</span><AppButton type="button" onClick={() => navigate('/settings')} variant="ghost" className="shrink-0 px-2 py-1 text-xs">修改设置</AppButton></div>
           <div className="my-4 flex flex-wrap gap-2">
             <AppButton onClick={addFiles} disabled={running} variant="secondary" className="px-3 py-1.5 text-xs">+ 添加文件</AppButton>
             <AppButton onClick={addDirectories} disabled={running} variant="secondary" className="px-3 py-1.5 text-xs">+ 添加目录</AppButton>
@@ -201,11 +207,11 @@ export default function TaskCenter() {
               <AppButton onClick={() => exportRecord('csv')} disabled={!selected} variant="secondary" className="px-2 py-1 text-xs">导出 CSV</AppButton>
               <AppButton onClick={() => setRecords(clearTaskRecords())} disabled={!records.length} variant="danger" className="px-2 py-1 text-xs">清空全部</AppButton>
             </div>
-            {filtered.length === 0 ? <EmptyState>暂无任务记录</EmptyState> : <ul className="space-y-2">{filtered.map((record) => <AppCard key={record.id} as="li" active={record.id === selected?.id} className="p-3"><button className="w-full text-left" onClick={() => setSelectedId(record.id)}><span className="block text-sm font-bold">{PRESET_META[record.presetId]?.label ?? '任务'} · {record.status}</span><span className="mt-1 block text-xs text-stone-500">输入 {record.inputCount}，成功 {record.stats.processed}，失败 {record.stats.failed}</span></button><div className="mt-2 flex gap-2"><AppButton onClick={() => { setSelectedId(record.id); setActivePanel('compare') }} variant="secondary" className="px-2 py-1 text-xs">查看结果</AppButton><AppButton onClick={() => startBatch(record.logs.filter((log) => log.status === 'error').map((log) => log.file))} disabled={!record.logs.some((log) => log.status === 'error')} variant="secondary" className="px-2 py-1 text-xs">重试失败</AppButton><AppButton onClick={() => setRecords(deleteTaskRecord(record.id))} variant="danger" className="px-2 py-1 text-xs">删除</AppButton></div></AppCard>)}</ul>}
+            {filtered.length === 0 ? <EmptyState>暂无任务记录</EmptyState> : <ul className="space-y-2">{filtered.map((record) => <AppCard key={record.id} as="li" active={record.id === selected?.id} className="p-3"><button className="w-full text-left" onClick={() => setSelectedId(record.id)}><span className="block text-sm font-bold">压缩任务 · {record.status}</span><span className="mt-1 block text-xs text-stone-500">输入 {record.inputCount}，成功 {record.stats.processed}，失败 {record.stats.failed}</span></button><div className="mt-2 flex gap-2"><AppButton onClick={() => { setSelectedId(record.id); setActivePanel('compare') }} variant="secondary" className="px-2 py-1 text-xs">查看结果</AppButton><AppButton onClick={() => startBatch(record.logs.filter((log) => log.status === 'error').map((log) => log.file))} disabled={!record.logs.some((log) => log.status === 'error')} variant="secondary" className="px-2 py-1 text-xs">重试失败</AppButton><AppButton onClick={() => setRecords(deleteTaskRecord(record.id))} variant="danger" className="px-2 py-1 text-xs">删除</AppButton></div></AppCard>)}</ul>}
           </div>}
           {activePanel === 'compare' && <div className="min-h-0 flex-1 overflow-y-auto p-4">{selected?.logs.some((log) => log.status === 'success') ? <ComparePanel logs={selected.logs.filter((log) => log.status === 'success')} /> : <EmptyState>选择包含成功结果的任务记录后查看对比</EmptyState>}</div>}
         </AppPanel>
       </div>
-    </div>
+    </PageLayout>
   )
 }

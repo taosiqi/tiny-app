@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings'
 import { ToastProvider } from '../toast/ToastContext'
@@ -12,12 +12,7 @@ vi.mock('../settings/useSettings', () => ({
       nightMode: 'system',
       closeBehavior: 'background',
       backupDirName: '_tiny_backup',
-      defaultPresetId: 'balanced',
-      compressionPresets: {
-        compact: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'low' },
-        balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' },
-        quality: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'high' }
-      }
+      compression: { image: { recursiveScan: true }, audio: { recursiveScan: true, mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 }, ogg: { bitrate: '96k', sampleRate: 44100, channels: 2 }, wav: { sampleRate: 22050, channels: 2 } } }
     },
     ready: true,
     saveSettings
@@ -42,13 +37,11 @@ vi.mock('../api/desktop', () => ({
 }))
 
 function renderSettings(initialEntries = ['/settings']) {
-  return render(
-    <MemoryRouter initialEntries={initialEntries}>
-      <ToastProvider>
-        <Settings />
-      </ToastProvider>
-    </MemoryRouter>
-  )
+  const router = createMemoryRouter([
+    { path: '/settings', element: <ToastProvider><Settings /></ToastProvider> },
+    { path: '/other', element: <div>其他页面</div> }
+  ], { initialEntries })
+  return { ...render(<RouterProvider router={router} />), router }
 }
 
 describe('Settings', () => {
@@ -91,20 +84,31 @@ describe('Settings', () => {
     expect(await screen.findByPlaceholderText('your-api-key')).toBeInTheDocument()
   })
 
-  it('saves editable compression presets', () => {
-    renderSettings(['/settings?tab=presets'])
-
-    fireEvent.change(screen.getByLabelText('默认预设'), { target: { value: 'compact' } })
-    fireEvent.change(screen.getByLabelText('省空间音频格式'), { target: { value: 'mp3' } })
-
-    expect(saveSettings).toHaveBeenCalledWith({ defaultPresetId: 'compact' })
-    expect(saveSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        compressionPresets: expect.objectContaining({
-          compact: expect.objectContaining({ audioFormat: 'mp3' })
-        })
+  it('fills a quick profile draft and saves only after confirmation', () => {
+    renderSettings()
+    fireEvent.click(screen.getByRole('button', { name: '省空间' }))
+    expect(saveSettings).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '保存压缩设置' }))
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      compression: expect.objectContaining({
+        audio: expect.objectContaining({ mp3: { bitrate: '48k', sampleRate: 32000, channels: 1 } })
       })
-    )
-    expect(screen.queryByText('运行状态')).not.toBeInTheDocument()
+    }))
+    expect(screen.queryByRole('button', { name: '通用' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '压缩预设' })).not.toBeInTheDocument()
+  })
+
+  it('blocks route changes while compression settings are dirty', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { router } = renderSettings()
+    fireEvent.click(screen.getByRole('button', { name: '省空间' }))
+    await act(() => router.navigate('/other'))
+    await waitFor(() => expect(confirm).toHaveBeenCalled())
+    expect(screen.getByRole('heading', { name: '首选项' })).toBeInTheDocument()
+
+    confirm.mockReturnValue(true)
+    await act(() => router.navigate('/other'))
+    expect(await screen.findByText('其他页面')).toBeInTheDocument()
+    confirm.mockRestore()
   })
 })

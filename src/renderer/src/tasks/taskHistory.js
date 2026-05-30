@@ -1,4 +1,4 @@
-export const TASK_RECORDS_KEY = 'tinypress_task_records_v3'
+export const TASK_RECORDS_KEY = 'tinypress_task_records_v4'
 export const TASK_HISTORY_KEY = TASK_RECORDS_KEY
 
 const RECORD_LIMIT = 30
@@ -34,13 +34,12 @@ export function clearTaskRecords() {
   return []
 }
 
-export function createTaskRecord({ source, presetId, presetSnapshot, inputCount }) {
+export function createTaskRecord({ source, compressionSnapshot, inputCount }) {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     source,
     status: 'running',
-    presetId,
-    presetSnapshot,
+    compressionSnapshot,
     startedAt: new Date().toISOString(),
     inputCount,
     stats: { total: 0, processed: 0, skipped: 0, failed: 0 },
@@ -58,8 +57,15 @@ export function finishTaskRecord(record, status, stats, logs) {
   }
 }
 
-// Transitional aliases for internal callers while pages migrate to the v3 record model.
-export const loadTaskHistory = loadTaskRecords
-export const saveTaskHistory = saveTaskRecords
-export const addTaskHistory = upsertTaskRecord
-export const clearTaskHistory = clearTaskRecords
+export function updateTaskRecordStats(record, logs = record.logs, total = record.stats.total) {
+  return {
+    ...record,
+    logs,
+    stats: {
+      total,
+      processed: logs.filter((item) => item.status === 'success').length,
+      skipped: logs.filter((item) => item.status === 'skipped').length,
+      failed: logs.filter((item) => item.status === 'error').length
+    }
+  }
+}

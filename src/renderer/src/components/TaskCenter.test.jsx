@@ -12,8 +12,7 @@ vi.mock('./ComparePanel', () => ({ default: () => <div>ComparePanel</div> }))
 vi.mock('../settings/useSettings', () => ({
   useSettings: () => ({
     settings: {
-      defaultPresetId: 'balanced',
-      compressionPresets: { balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' } }
+      compression: { image: { recursiveScan: true }, audio: { recursiveScan: true, mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 }, ogg: { bitrate: '96k', sampleRate: 44100, channels: 2 }, wav: { sampleRate: 22050, channels: 2 } } }
     }
   })
 }))
@@ -56,7 +55,7 @@ describe('TaskCenter', () => {
     expect(screen.queryByText('管理 Key')).not.toBeInTheDocument()
   })
 
-  it('runs an image task and writes the v3 task record', async () => {
+  it('runs an image task and writes the v4 task record', async () => {
     renderPage()
     fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
     await screen.findByText('/tmp/photo.png')
@@ -64,7 +63,7 @@ describe('TaskCenter', () => {
     await waitFor(() => expect(compressImage).toHaveBeenCalled())
     const records = JSON.parse(localStorage.getItem(TASK_RECORDS_KEY))
     expect(records[0].source).toBe('task-center')
-    expect(records[0].presetId).toBe('balanced')
+    expect(records[0].compressionSnapshot.image.recursiveScan).toBe(true)
     expect(records[0].status).toBe('success')
   })
 
@@ -74,5 +73,19 @@ describe('TaskCenter', () => {
     await screen.findByText('/tmp/assets')
     expect(openDirectories).toHaveBeenCalled()
     expect(screen.getAllByText('/tmp/assets')).toHaveLength(1)
+  })
+
+  it('persists total and processed counts while a task is running', async () => {
+    compressImage.mockImplementationOnce(() => new Promise(() => {}))
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
+    await screen.findByText('/tmp/photo.png')
+    fireEvent.click(screen.getByRole('button', { name: '开始统一处理' }))
+    await waitFor(() => expect(compressImage).toHaveBeenCalled())
+    listeners.get('imageTotal')?.(4)
+    listeners.get('imageProgress')?.({ status: 'success', file: '/tmp/photo.png' })
+    const records = JSON.parse(localStorage.getItem(TASK_RECORDS_KEY))
+    expect(records[0].status).toBe('running')
+    expect(records[0].stats).toEqual({ total: 4, processed: 1, skipped: 0, failed: 0 })
   })
 })

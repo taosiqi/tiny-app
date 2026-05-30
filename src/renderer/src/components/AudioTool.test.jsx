@@ -4,158 +4,59 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AudioTool from './AudioTool'
 import { ToastProvider } from '../toast/ToastContext'
 import { compressAudio, onAudioPaused, openFiles } from '../api/desktop'
+import { TASK_RECORDS_KEY } from '../tasks/taskHistory'
 
-vi.mock('@tauri-apps/api/core', () => ({
-  convertFileSrc: (path) => `asset://${path}`
-}))
-
+vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path) => `asset://${path}` }))
 vi.mock('../api/desktop', () => ({
-  compressAudio: vi.fn(),
-  onAudioDone: vi.fn(() => () => {}),
-  onAudioPaused: vi.fn(() => () => {}),
-  onAudioProgress: vi.fn(() => () => {}),
-  onAudioTotal: vi.fn(() => () => {}),
-  openDirectories: vi.fn(async () => []),
-  openFiles: vi.fn(async () => []),
-  stopAudioCompression: vi.fn()
+  compressAudio: vi.fn(), onAudioDone: vi.fn(() => () => {}), onAudioPaused: vi.fn(() => () => {}),
+  onAudioProgress: vi.fn(() => () => {}), onAudioTotal: vi.fn(() => () => {}),
+  openDirectories: vi.fn(async () => []), openFiles: vi.fn(async () => []), stopAudioCompression: vi.fn()
+}))
+vi.mock('../settings/useSettings', () => ({
+  useSettings: () => ({ settings: { compression: { image: { recursiveScan: true }, audio: { recursiveScan: false, mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 }, ogg: { bitrate: '160k', sampleRate: 48000, channels: 2 }, wav: { sampleRate: 22050, channels: 2 } } } } })
 }))
 
-vi.mock('../settings/useSettings', () => ({
-  useSettings: () => ({
-    settings: {
-      defaultPresetId: 'balanced',
-      compressionPresets: {
-        balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' }
-      }
-    }
-  })
-}))
+const expectedPayload = (paths) => ({
+  paths, recursive: false,
+  mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 },
+  ogg: { bitrate: '160k', sampleRate: 48000, channels: 2 },
+  wav: { sampleRate: 22050, channels: 2 }
+})
+const renderPage = () => render(<ToastProvider><MemoryRouter><AudioTool /></MemoryRouter></ToastProvider>)
 
 describe('AudioTool', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    openFiles.mockResolvedValue([])
+  beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); openFiles.mockResolvedValue([]) })
+
+  it('shows the saved compression summary without temporary controls', () => {
+    renderPage()
+    expect(screen.getByText(/MP3 96k \/ OGG 160k \/ WAV 22.05kHz/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('递归子目录')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('压缩预设')).not.toBeInTheDocument()
   })
 
-  it('defaults to mixed mode and can switch formats', () => {
-    render(
-      <MemoryRouter initialEntries={['/audio']}>
-        <AudioTool />
-      </MemoryRouter>
-    )
-
-    expect(screen.getByText('音频压缩')).toBeInTheDocument()
-    expect(screen.getByText('自动按文件扩展名选择压缩策略')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'OGG' }))
-
-    expect(screen.getByText('OGG 压缩')).toBeInTheDocument()
-    expect(screen.getByText('Vorbis 96kbps')).toBeInTheDocument()
-  })
-
-  it('shows a toast instead of alert when starting without files', () => {
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
-    render(
-      <ToastProvider>
-        <MemoryRouter initialEntries={['/audio']}>
-          <AudioTool />
-        </MemoryRouter>
-      </ToastProvider>
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
-
-    expect(alertSpy).not.toHaveBeenCalled()
-    expect(screen.getByText('请先添加文件或目录')).toBeInTheDocument()
-    alertSpy.mockRestore()
-  })
-
-  it('starts audio compression with selected format and recursive setting', async () => {
+  it('starts audio compression with saved format settings', async () => {
     openFiles.mockResolvedValueOnce(['/tmp/audio.ogg'])
     compressAudio.mockResolvedValueOnce()
-
-    render(
-      <ToastProvider>
-        <MemoryRouter initialEntries={['/audio']}>
-          <AudioTool />
-        </MemoryRouter>
-      </ToastProvider>
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'OGG' }))
+    renderPage()
     fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
-    expect(await screen.findByText('/tmp/audio.ogg')).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('递归子目录'))
+    await screen.findByText('/tmp/audio.ogg')
     fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
-
-    await waitFor(() =>
-      expect(compressAudio).toHaveBeenCalledWith({
-        paths: ['/tmp/audio.ogg'],
-        format: 'ogg',
-        quality: 'medium',
-        recursive: false
-      })
-    )
+    await waitFor(() => expect(compressAudio).toHaveBeenCalledWith(expectedPayload(['/tmp/audio.ogg'])))
   })
 
-  it('pauses and retries audio compression failures', async () => {
-    openFiles.mockResolvedValueOnce(['/tmp/audio.mp3'])
-    compressAudio.mockRejectedValueOnce(new Error('boom')).mockResolvedValue()
-
-    render(
-      <ToastProvider>
-        <MemoryRouter initialEntries={['/audio?format=mp3']}>
-          <AudioTool />
-        </MemoryRouter>
-      </ToastProvider>
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
-    await screen.findByText('/tmp/audio.mp3')
-    fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
-
-    expect(await screen.findByText('boom')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '↺' }))
-
-    await waitFor(() =>
-      expect(compressAudio).toHaveBeenLastCalledWith({
-        paths: ['/tmp/audio.mp3'],
-        format: 'mp3',
-        quality: 'medium',
-        recursive: true
-      })
-    )
-  })
-
-  it('shows paused state and continues remaining audio files', async () => {
+  it('pauses and continues remaining files', async () => {
     openFiles.mockResolvedValueOnce(['/tmp/audio.mp3'])
     compressAudio.mockResolvedValue()
-
-    render(
-      <ToastProvider>
-        <MemoryRouter initialEntries={['/audio']}>
-          <AudioTool />
-        </MemoryRouter>
-      </ToastProvider>
-    )
-
+    renderPage()
     fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
     await screen.findByText('/tmp/audio.mp3')
     fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
-
     await waitFor(() => expect(onAudioPaused).toHaveBeenCalled())
     onAudioPaused.mock.calls.at(-1)[0]({ remaining: ['/tmp/left.mp3'] })
-
-    expect(await screen.findByRole('button', { name: '继续压缩（1 个）' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '继续压缩（1 个）' }))
-
-    await waitFor(() =>
-      expect(compressAudio).toHaveBeenLastCalledWith({
-        paths: ['/tmp/left.mp3'],
-        format: 'mixed',
-        quality: 'medium',
-        recursive: true
-      })
-    )
+    const records = JSON.parse(localStorage.getItem(TASK_RECORDS_KEY))
+    expect(records[0].status).toBe('paused')
+    expect(records[0].logs.at(-1).status).toBe('paused')
+    fireEvent.click(await screen.findByRole('button', { name: '继续压缩（1 个）' }))
+    await waitFor(() => expect(compressAudio).toHaveBeenLastCalledWith(expectedPayload(['/tmp/left.mp3'])))
   })
 })

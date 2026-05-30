@@ -33,10 +33,7 @@ vi.mock('../api/desktop', () => ({
 vi.mock('../settings/useSettings', () => ({
   useSettings: () => ({
     settings: {
-      defaultPresetId: 'balanced',
-      compressionPresets: {
-        balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' }
-      }
+      compression: { image: { recursiveScan: true }, audio: { recursiveScan: true, mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 }, ogg: { bitrate: '96k', sampleRate: 44100, channels: 2 }, wav: { sampleRate: 22050, channels: 2 } } }
     }
   })
 }))
@@ -44,6 +41,7 @@ vi.mock('../settings/useSettings', () => ({
 describe('TinyPNG', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     getTinypngKeys.mockResolvedValue([])
   })
 
@@ -55,7 +53,7 @@ describe('TinyPNG', () => {
       </ToastProvider>
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '🚀 开始压缩' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
 
     expect(alertSpy).not.toHaveBeenCalled()
     expect(screen.getByText('请先填写 TinyPNG API Key')).toBeInTheDocument()
@@ -85,6 +83,14 @@ describe('TinyPNG', () => {
     )
 
     await waitFor(() => expect(getTinypngKeys).toHaveBeenCalled())
+    expect(checkTinypngKey).not.toHaveBeenCalled()
+  })
+
+  it('does not migrate keys from legacy local storage', async () => {
+    localStorage.setItem('tinypng_keys', JSON.stringify([{ value: 'legacy-key' }]))
+    render(<ToastProvider><TinyPNG /></ToastProvider>)
+    await waitFor(() => expect(getTinypngKeys).toHaveBeenCalled())
+    expect(screen.getByPlaceholderText('your-api-key')).toHaveValue('')
     expect(checkTinypngKey).not.toHaveBeenCalled()
   })
 
@@ -134,14 +140,13 @@ describe('TinyPNG', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
     expect(await screen.findByText('/tmp/photo.png')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByLabelText('递归子目录'))
-    fireEvent.click(screen.getByRole('button', { name: '🚀 开始压缩' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
 
     await waitFor(() =>
       expect(compressImage).toHaveBeenCalledWith({
         paths: ['/tmp/photo.png'],
         apiKeys: ['key-a'],
-        recursive: false
+        recursive: true
       })
     )
   })
@@ -159,13 +164,13 @@ describe('TinyPNG', () => {
     fireEvent.change(screen.getByPlaceholderText('your-api-key'), { target: { value: 'key-a' } })
     fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
     await screen.findByText('/tmp/photo.png')
-    fireEvent.click(screen.getByRole('button', { name: '🚀 开始压缩' }))
+    fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
 
     await waitFor(() => expect(onImagePaused).toHaveBeenCalled())
     onImagePaused.mock.calls.at(-1)[0]({ remaining: ['/tmp/left.png'] })
 
-    expect(await screen.findByRole('button', { name: '▶ 继续压缩（1 张）' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '▶ 继续压缩（1 张）' }))
+    expect(await screen.findByRole('button', { name: '继续压缩（1 张）' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '继续压缩（1 张）' }))
 
     await waitFor(() =>
       expect(compressImage).toHaveBeenLastCalledWith({

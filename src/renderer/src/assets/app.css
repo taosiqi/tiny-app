@@ -704,8 +704,7 @@ main {
 }
 
 :root[data-night='dark'] .brand-card,
-:root[data-night='dark'] .app-sidebar nav a,
-:root[data-night='dark'] header div[class*='bg-white/'] {
+:root[data-night='dark'] .app-sidebar nav a {
   background: transparent !important;
   background-color: transparent !important;
   box-shadow: none !important;

@@ -55,8 +55,8 @@ try {
   await waitFor(`document.body.innerText.includes('sample.png')`, 'injected image fixture')
   await execute(`Array.from(document.querySelectorAll('button')).find((button) => button.innerText.includes('开始压缩')).click()`)
   await waitFor(`document.body.innerText.includes('图片压缩完成')`, 'local TinyPNG mock compression')
-  await execute(`location.hash = '#/settings?tab=presets'`)
-  await waitFor(`document.body.innerText.includes('三个预设会真实影响目录扫描和 ffmpeg 压缩参数')`, 'editable presets')
+  await execute(`location.hash = '#/settings'`)
+  await waitFor(`document.body.innerText.includes('快捷档位只填充草稿')`, 'compression settings')
   stdout.write('desktop e2e passed\n')
 } finally {
   await fetch(`${endpoint}/session/${sessionId}`, { method: 'DELETE' })

@@ -12,9 +12,25 @@ pub(crate) struct ImagePayload {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AudioPayload {
     pub paths: Vec<String>,
-    pub format: String,
-    pub quality: String,
     pub recursive: Option<bool>,
+    pub mp3: LossyAudioPayload,
+    pub ogg: LossyAudioPayload,
+    pub wav: WavAudioPayload,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LossyAudioPayload {
+    pub bitrate: String,
+    pub sample_rate: u32,
+    pub channels: u8,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WavAudioPayload {
+    pub sample_rate: u32,
+    pub channels: u8,
 }
 
 #[derive(Debug, Deserialize)]

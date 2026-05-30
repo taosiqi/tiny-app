@@ -369,15 +369,10 @@ async fn compress_audio(
     payload: AudioPayload,
 ) -> AppResult<()> {
     state.stop_audio.store(false, Ordering::SeqCst);
+    let payload = normalize_audio_payload(payload);
     let recursive = payload.recursive.unwrap_or(true);
     let backup_dir_name = current_backup_dir_name(&settings);
-    let requested_format = normalize_audio_request(&payload.format);
-    let requested_quality = normalize_audio_quality(&payload.quality);
-    let exts: &[&str] = if requested_format == "mixed" {
-        &["mp3", "ogg", "wav"]
-    } else {
-        std::slice::from_ref(&requested_format)
-    };
+    let exts = &["mp3", "ogg", "wav"];
     let mut files = Vec::new();
     for p in &payload.paths {
         let path = Path::new(p);
@@ -405,7 +400,7 @@ async fn compress_audio(
             return Ok(());
         }
 
-        let actual_format = audio_format_for_request(file, requested_format);
+        let actual_format = audio_format_from_path(file);
         let Some(actual_format) = actual_format else {
             skipped += 1;
             let result = skipped_audio_result(file, "不支持的音频格式，已跳过");
@@ -421,12 +416,16 @@ async fn compress_audio(
         let file_for_task = file.clone();
         let format_for_task = actual_format.to_string();
         let ffmpeg_for_task = ffmpeg.clone();
-        let quality_for_task = requested_quality.to_string();
+        let mp3_for_task = payload.mp3.clone();
+        let ogg_for_task = payload.ogg.clone();
+        let wav_for_task = payload.wav.clone();
         let result = tokio::task::spawn_blocking(move || {
             compress_audio_file(
                 &file_for_task,
                 &format_for_task,
-                &quality_for_task,
+                &mp3_for_task,
+                &ogg_for_task,
+                &wav_for_task,
                 &ffmpeg_for_task,
             )
         })
@@ -646,57 +645,118 @@ fn collect_files(
     }
 }
 
-fn normalize_audio_request(format: &str) -> &str {
-    match format {
-        "mixed" | "mp3" | "ogg" | "wav" => format,
-        _ => "mixed",
-    }
-}
-
-fn normalize_audio_quality(quality: &str) -> &str {
-    match quality {
-        "low" | "medium" | "high" => quality,
-        _ => "medium",
-    }
-}
-
-fn audio_ffmpeg_args(format: &str, quality: &str, input: &str, output: &str) -> Vec<String> {
-    let quality = normalize_audio_quality(quality);
-    let values: Vec<&str> = match (format, quality) {
-        ("mp3", "low") => vec![
-            "-i", input, "-b:a", "48k", "-acodec", "mp3", "-ar", "32000", "-ac", "1", output,
-            "-y",
+fn audio_ffmpeg_args(
+    format: &str,
+    mp3: &LossyAudioPayload,
+    ogg: &LossyAudioPayload,
+    wav: &WavAudioPayload,
+    input: &str,
+    output: &str,
+) -> Vec<String> {
+    let values: Vec<String> = match format {
+        "mp3" => vec![
+            "-i".into(),
+            input.into(),
+            "-b:a".into(),
+            mp3.bitrate.clone(),
+            "-acodec".into(),
+            "mp3".into(),
+            "-ar".into(),
+            mp3.sample_rate.to_string(),
+            "-ac".into(),
+            mp3.channels.to_string(),
+            output.into(),
+            "-y".into(),
         ],
-        ("mp3", "high") => vec![
-            "-i", input, "-b:a", "128k", "-acodec", "mp3", "-ar", "44100", "-ac", "2", output,
-            "-y",
-        ],
-        ("mp3", _) => vec![
-            "-i", input, "-b:a", "64k", "-acodec", "mp3", "-ar", "44100", "-ac", "1", output,
-            "-y",
-        ],
-        ("ogg", "low") => vec![
-            "-i", input, "-c:a", "libvorbis", "-b:a", "64k", "-ar", "32000", "-ac", "1", output,
-            "-y",
-        ],
-        ("ogg", "high") => vec![
-            "-i", input, "-c:a", "libvorbis", "-b:a", "160k", "-ar", "44100", "-ac", "2", output,
-            "-y",
-        ],
-        ("ogg", _) => vec![
-            "-i", input, "-c:a", "libvorbis", "-b:a", "96k", "-ar", "44100", output, "-y",
-        ],
-        ("wav", "low") => vec![
-            "-i", input, "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", output, "-y",
-        ],
-        ("wav", "high") => vec![
-            "-i", input, "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", output, "-y",
+        "ogg" => vec![
+            "-i".into(),
+            input.into(),
+            "-c:a".into(),
+            "libvorbis".into(),
+            "-b:a".into(),
+            ogg.bitrate.clone(),
+            "-ar".into(),
+            ogg.sample_rate.to_string(),
+            "-ac".into(),
+            ogg.channels.to_string(),
+            output.into(),
+            "-y".into(),
         ],
         _ => vec![
-            "-i", input, "-acodec", "pcm_s16le", "-ar", "22050", "-ac", "1", output, "-y",
+            "-i".into(),
+            input.into(),
+            "-acodec".into(),
+            "pcm_s16le".into(),
+            "-ar".into(),
+            wav.sample_rate.to_string(),
+            "-ac".into(),
+            wav.channels.to_string(),
+            output.into(),
+            "-y".into(),
         ],
     };
-    values.into_iter().map(str::to_string).collect()
+    values
+}
+
+fn normalize_audio_payload(payload: AudioPayload) -> AudioPayload {
+    AudioPayload {
+        paths: payload.paths,
+        recursive: payload.recursive,
+        mp3: normalize_lossy_audio_payload(
+            payload.mp3,
+            &["48k", "64k", "96k", "128k", "192k"],
+            LossyAudioPayload {
+                bitrate: "96k".into(),
+                sample_rate: 44100,
+                channels: 2,
+            },
+        ),
+        ogg: normalize_lossy_audio_payload(
+            payload.ogg,
+            &["64k", "96k", "128k", "160k", "192k"],
+            LossyAudioPayload {
+                bitrate: "96k".into(),
+                sample_rate: 44100,
+                channels: 2,
+            },
+        ),
+        wav: WavAudioPayload {
+            sample_rate: normalize_audio_sample_rate(payload.wav.sample_rate, 22050),
+            channels: normalize_audio_channels(payload.wav.channels, 2),
+        },
+    }
+}
+
+fn normalize_lossy_audio_payload(
+    payload: LossyAudioPayload,
+    bitrates: &[&str],
+    fallback: LossyAudioPayload,
+) -> LossyAudioPayload {
+    LossyAudioPayload {
+        bitrate: if bitrates.contains(&payload.bitrate.as_str()) {
+            payload.bitrate
+        } else {
+            fallback.bitrate
+        },
+        sample_rate: normalize_audio_sample_rate(payload.sample_rate, fallback.sample_rate),
+        channels: normalize_audio_channels(payload.channels, fallback.channels),
+    }
+}
+
+fn normalize_audio_sample_rate(value: u32, fallback: u32) -> u32 {
+    if [16000, 22050, 32000, 44100, 48000].contains(&value) {
+        value
+    } else {
+        fallback
+    }
+}
+
+fn normalize_audio_channels(value: u8, fallback: u8) -> u8 {
+    if value == 1 || value == 2 {
+        value
+    } else {
+        fallback
+    }
 }
 
 fn audio_format_from_path(path: &Path) -> Option<&'static str> {
@@ -705,15 +765,6 @@ fn audio_format_from_path(path: &Path) -> Option<&'static str> {
         Some(ext) if ext.eq_ignore_ascii_case("ogg") => Some("ogg"),
         Some(ext) if ext.eq_ignore_ascii_case("wav") => Some("wav"),
         _ => None,
-    }
-}
-
-fn audio_format_for_request<'a>(path: &Path, requested: &'a str) -> Option<&'a str> {
-    let actual = audio_format_from_path(path)?;
-    if requested == "mixed" || requested == actual {
-        Some(actual)
-    } else {
-        None
     }
 }
 
@@ -1186,7 +1237,9 @@ fn tinify_endpoint() -> String {
 fn compress_audio_file(
     file_path: &Path,
     format: &str,
-    quality: &str,
+    mp3: &LossyAudioPayload,
+    ogg: &LossyAudioPayload,
+    wav: &WavAudioPayload,
     ffmpeg: &Path,
 ) -> Result<CompressionResult, String> {
     let original_size = fs::metadata(file_path).map_err(|e| e.to_string())?.len();
@@ -1200,7 +1253,7 @@ fn compress_audio_file(
     let temp = temp_file.to_string_lossy().to_string();
     let input = file_path.to_string_lossy().to_string();
 
-    let mut args = audio_ffmpeg_args(format, quality, &input, &temp);
+    let mut args = audio_ffmpeg_args(format, mp3, ogg, wav, &input, &temp);
 
     let output = Command::new(ffmpeg)
         .args(args.drain(..))
@@ -1413,8 +1466,28 @@ mod tests {
             night_mode: "invalid".into(),
             close_behavior: "bad".into(),
             backup_dir_name: "../bad".into(),
-            default_preset_id: "bad".into(),
-            compression_presets: Default::default(),
+            compression: settings::CompressionSettings {
+                image: settings::ImageCompressionSettings {
+                    recursive_scan: false,
+                },
+                audio: settings::AudioCompressionSettings {
+                    recursive_scan: false,
+                    mp3: settings::LossyAudioSettings {
+                        bitrate: "bad".into(),
+                        sample_rate: 1,
+                        channels: 9,
+                    },
+                    ogg: settings::LossyAudioSettings {
+                        bitrate: "bad".into(),
+                        sample_rate: 1,
+                        channels: 9,
+                    },
+                    wav: settings::WavAudioSettings {
+                        sample_rate: 1,
+                        channels: 9,
+                    },
+                },
+            },
             tinypng_keys: vec![StoredTinypngKey {
                 value: "key".into(),
                 compression_count: Some(8),
@@ -1426,8 +1499,9 @@ mod tests {
         assert_eq!(normalized.night_mode, "system");
         assert_eq!(normalized.close_behavior, "background");
         assert_eq!(normalized.backup_dir_name, DEFAULT_BACKUP_DIR_NAME);
-        assert_eq!(normalized.default_preset_id, "balanced");
-        assert_eq!(normalized.compression_presets["compact"].audio_quality, "low");
+        assert_eq!(normalized.compression.audio.mp3.bitrate, "96k");
+        assert_eq!(normalized.compression.audio.mp3.sample_rate, 44100);
+        assert_eq!(normalized.compression.audio.wav.channels, 2);
         assert_eq!(normalized.tinypng_keys[0].value, "key");
         assert_eq!(normalized.tinypng_keys[0].compression_count, Some(8));
     }
@@ -1440,8 +1514,7 @@ mod tests {
             night_mode: "dark".into(),
             close_behavior: "quit".into(),
             backup_dir_name: "custom_backup".into(),
-            default_preset_id: "quality".into(),
-            compression_presets: Default::default(),
+            compression: settings::CompressionSettings::default(),
             tinypng_keys: vec![StoredTinypngKey {
                 value: "key".into(),
                 compression_count: Some(3),
@@ -1452,40 +1525,68 @@ mod tests {
         let raw = fs::read_to_string(path).unwrap();
 
         assert!(raw.contains("\"backupDirName\": \"custom_backup\""));
-        assert!(raw.contains("\"defaultPresetId\": \"quality\""));
+        assert!(raw.contains("\"compression\""));
         assert!(raw.contains("\"compressionCount\": 3"));
     }
 
     #[test]
     fn resolves_mixed_audio_formats_by_extension() {
-        assert_eq!(normalize_audio_request("mixed"), "mixed");
-        assert_eq!(normalize_audio_request("mp3"), "mp3");
-        assert_eq!(normalize_audio_request("bad"), "mixed");
-        assert_eq!(
-            audio_format_for_request(Path::new("song.MP3"), "mixed"),
-            Some("mp3")
-        );
-        assert_eq!(
-            audio_format_for_request(Path::new("song.ogg"), "mixed"),
-            Some("ogg")
-        );
-        assert_eq!(
-            audio_format_for_request(Path::new("song.wav"), "wav"),
-            Some("wav")
-        );
-        assert_eq!(audio_format_for_request(Path::new("song.wav"), "mp3"), None);
-        assert_eq!(
-            audio_format_for_request(Path::new("song.flac"), "mixed"),
-            None
-        );
+        assert_eq!(audio_format_from_path(Path::new("song.MP3")), Some("mp3"));
+        assert_eq!(audio_format_from_path(Path::new("song.ogg")), Some("ogg"));
+        assert_eq!(audio_format_from_path(Path::new("song.wav")), Some("wav"));
+        assert_eq!(audio_format_from_path(Path::new("song.flac")), None);
     }
 
     #[test]
-    fn maps_audio_quality_to_ffmpeg_arguments() {
-        assert!(audio_ffmpeg_args("mp3", "low", "in", "out").contains(&"48k".into()));
-        assert!(audio_ffmpeg_args("ogg", "medium", "in", "out").contains(&"96k".into()));
-        assert!(audio_ffmpeg_args("wav", "high", "in", "out").contains(&"44100".into()));
-        assert!(audio_ffmpeg_args("wav", "high", "in", "out").contains(&"2".into()));
+    fn maps_audio_settings_to_ffmpeg_arguments() {
+        let mp3 = LossyAudioPayload {
+            bitrate: "48k".into(),
+            sample_rate: 32000,
+            channels: 1,
+        };
+        let ogg = LossyAudioPayload {
+            bitrate: "160k".into(),
+            sample_rate: 48000,
+            channels: 2,
+        };
+        let wav = WavAudioPayload {
+            sample_rate: 44100,
+            channels: 2,
+        };
+        assert!(audio_ffmpeg_args("mp3", &mp3, &ogg, &wav, "in", "out").contains(&"48k".into()));
+        assert!(audio_ffmpeg_args("ogg", &mp3, &ogg, &wav, "in", "out").contains(&"160k".into()));
+        assert!(audio_ffmpeg_args("wav", &mp3, &ogg, &wav, "in", "out").contains(&"44100".into()));
+    }
+
+    #[test]
+    fn normalizes_invalid_audio_payload_settings() {
+        let payload = normalize_audio_payload(AudioPayload {
+            paths: vec!["song.mp3".into()],
+            recursive: Some(false),
+            mp3: LossyAudioPayload {
+                bitrate: "999k".into(),
+                sample_rate: 12345,
+                channels: 9,
+            },
+            ogg: LossyAudioPayload {
+                bitrate: "1k".into(),
+                sample_rate: 12345,
+                channels: 0,
+            },
+            wav: WavAudioPayload {
+                sample_rate: 12345,
+                channels: 3,
+            },
+        });
+        assert_eq!(payload.mp3.bitrate, "96k");
+        assert_eq!(payload.mp3.sample_rate, 44100);
+        assert_eq!(payload.mp3.channels, 2);
+        assert_eq!(payload.ogg.bitrate, "96k");
+        assert_eq!(payload.ogg.sample_rate, 44100);
+        assert_eq!(payload.ogg.channels, 2);
+        assert_eq!(payload.wav.sample_rate, 22050);
+        assert_eq!(payload.wav.channels, 2);
+        assert_eq!(payload.recursive, Some(false));
     }
 
     #[test]
@@ -1495,11 +1596,19 @@ mod tests {
             return;
         }
         let mut files = Vec::new();
-        collect_files(&root, &["png", "jpg", "jpeg"], true, DEFAULT_BACKUP_DIR_NAME, &mut files);
+        collect_files(
+            &root,
+            &["png", "jpg", "jpeg"],
+            true,
+            DEFAULT_BACKUP_DIR_NAME,
+            &mut files,
+        );
         files.sort();
         files.dedup();
         assert_eq!(files.len(), 3);
-        assert!(!files.iter().any(|path| path.to_string_lossy().contains("_tiny_backup")));
+        assert!(!files
+            .iter()
+            .any(|path| path.to_string_lossy().contains("_tiny_backup")));
     }
 
     #[test]
@@ -1511,11 +1620,25 @@ mod tests {
             return;
         }
         let dir = tempdir().unwrap();
-        for (format, quality) in [("mp3", "low"), ("ogg", "medium"), ("wav", "high")] {
+        let mp3 = LossyAudioPayload {
+            bitrate: "48k".into(),
+            sample_rate: 32000,
+            channels: 1,
+        };
+        let ogg = LossyAudioPayload {
+            bitrate: "96k".into(),
+            sample_rate: 44100,
+            channels: 2,
+        };
+        let wav = WavAudioPayload {
+            sample_rate: 44100,
+            channels: 2,
+        };
+        for format in ["mp3", "ogg", "wav"] {
             let source = root.join(format!("sample.{}", format));
             let target = dir.path().join(format!("sample.{}", format));
             fs::copy(source, &target).unwrap();
-            let result = compress_audio_file(&target, format, quality, &ffmpeg).unwrap();
+            let result = compress_audio_file(&target, format, &mp3, &ogg, &wav, &ffmpeg).unwrap();
             assert!(result.success || result.reason.is_some());
         }
     }

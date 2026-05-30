@@ -11,11 +11,14 @@ export async function installTauriMock(page) {
         nightMode: 'system',
         closeBehavior: 'background',
         backupDirName: '_tiny_backup',
-        defaultPresetId: 'balanced',
-        compressionPresets: {
-          compact: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'low' },
-          balanced: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'medium' },
-          quality: { recursiveScan: true, audioFormat: 'mixed', audioQuality: 'high' }
+        compression: {
+          image: { recursiveScan: true },
+          audio: {
+            recursiveScan: true,
+            mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 },
+            ogg: { bitrate: '96k', sampleRate: 44100, channels: 2 },
+            wav: { sampleRate: 22050, channels: 2 }
+          }
         }
       },
       keys: [{ value: 'stored-key', compressionCount: null }],

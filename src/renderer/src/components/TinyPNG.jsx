@@ -11,7 +11,10 @@
 import { useState, useRef, useCallback } from 'react'
 import ComparePanel from './ComparePanel'
 import CompareFullscreen from './CompareFullscreen'
+import PathPickerPanel from './PathPickerPanel'
 import { TinypngKeyManagerView } from './TinypngKeyManager'
+import { AppButton, AppPanel } from './ui/base'
+import { PageHeader, PageLayout } from './ui/page'
 import { useToast } from '../toast/useToast'
 import {
   compressImage,
@@ -20,15 +23,13 @@ import {
   onImagePaused,
   onImageProgress,
   onImageTotal,
-  openDirectories,
-  openFiles,
   stopImageCompression
 } from '../api/desktop'
 import { KEY_LIMIT, useTinypngKeys } from '../tinypng/useTinypngKeys'
 import { basename } from '../utils/fileUtils'
 import { useSettings } from '../settings/useSettings'
-import { getPreset } from '../tasks/taskPresets'
-import { createTaskRecord, finishTaskRecord, upsertTaskRecord } from '../tasks/taskHistory'
+import { cloneCompression } from '../settings/compressionSettings'
+import { createTaskRecord, finishTaskRecord, updateTaskRecordStats, upsertTaskRecord } from '../tasks/taskHistory'
 
 /** 日志条目状态 → Tailwind 色彩类映射 */
 const STATUS_CLASS = {
@@ -48,7 +49,7 @@ const STATUS_CLASS = {
 export default function TinyPNG() {
   const toast = useToast()
   const { settings } = useSettings()
-  const defaultPreset = getPreset(settings)
+  const compression = cloneCompression(settings.compression)
   const keyController = useTinypngKeys({ autoValidate: true, toast })
   const { keys, setKeys, validKeyValues } = keyController
   const [paths, setPaths] = useState([])
@@ -61,7 +62,6 @@ export default function TinyPNG() {
   const [activeTab, setActiveTab] = useState('log')
   const [compareFullscreen, setCompareFullscreen] = useState(false)
   const [logFilter, setLogFilter] = useState('all')
-  const [recursive, setRecursive] = useState(defaultPreset.recursiveScan)
   const taskRecordRef = useRef(null)
   const logRef = useRef(null)
 
@@ -71,26 +71,6 @@ export default function TinyPNG() {
       if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
     }, 50)
   }, [])
-
-  const addFiles = async () => {
-    const files = await openFiles({
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]
-    })
-    if (files.length > 0) {
-      setPaths((prev) => [...new Set([...prev, ...files])])
-      toast.info(`已添加 ${files.length} 个图片文件`)
-    }
-  }
-
-  const addDirectory = async () => {
-    const dirs = await openDirectories()
-    if (dirs.length > 0) {
-      setPaths((prev) => [...new Set([...prev, ...dirs])])
-      toast.info(`已添加 ${dirs.length} 个图片目录`)
-    }
-  }
-
-  const removePath = (p) => setPaths((prev) => prev.filter((x) => x !== p))
 
   /**
    * 开始批量压缩
@@ -123,8 +103,7 @@ export default function TinyPNG() {
     setRunning(true)
     const taskRecord = createTaskRecord({
       source: 'image',
-      presetId: defaultPreset.id,
-      presetSnapshot: { ...defaultPreset, recursiveScan: recursive },
+      compressionSnapshot: compression,
       inputCount: targetFiles.length
     })
     taskRecordRef.current = taskRecord
@@ -133,6 +112,11 @@ export default function TinyPNG() {
 
     const cleanTotal = onImageTotal((n) => {
       setTotal(n)
+      if (taskRecordRef.current) {
+        const next = updateTaskRecordStats(taskRecordRef.current, taskRecordRef.current.logs, n)
+        taskRecordRef.current = next
+        upsertTaskRecord(next)
+      }
     })
     const cleanProgress = onImageProgress((item) => {
       if (isRetry) {
@@ -150,7 +134,7 @@ export default function TinyPNG() {
       scrollBottom()
       const record = taskRecordRef.current
       if (record) {
-        const next = { ...record, logs: [...record.logs, item] }
+        const next = updateTaskRecordStats(record, [...record.logs, item])
         taskRecordRef.current = next
         upsertTaskRecord(next)
       }
@@ -194,7 +178,7 @@ export default function TinyPNG() {
     })
 
     try {
-      await compressImage({ paths: targetFiles, apiKeys: validKeys, recursive })
+      await compressImage({ paths: targetFiles, apiKeys: validKeys, recursive: compression.image.recursiveScan })
     } catch (error) {
       setRunning(false)
       toast.error(`图片压缩失败：${error?.message ?? error}`)
@@ -220,137 +204,97 @@ export default function TinyPNG() {
   const skippedCount = logs.filter((item) => item.status === 'skipped').length
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <PageLayout>
       {compareFullscreen && (
         <CompareFullscreen logs={logs} onClose={() => setCompareFullscreen(false)} />
       )}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-7 py-6 gap-4">
+      <PageHeader title="图片压缩" description="使用 TinyPNG 自动优化 PNG、JPG 和 JPEG 文件。" />
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
         {/* API Keys */}
-        <section className="shrink-0 rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
+        <AppPanel className="shrink-0 p-5">
           <TinypngKeyManagerView controller={keyController} disabled={running} />
-        </section>
+        </AppPanel>
 
         {/* Paths */}
-        <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 p-5 shrink-0">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-stone-700">目标路径</span>
-            <div className="flex gap-2">
-              <button
-                onClick={addFiles}
-                disabled={running}
-                className="interactive-button rounded-2xl bg-sky-100 px-3 py-1.5 text-xs text-stone-950 disabled:opacity-50"
-              >
-                + 添加文件
-              </button>
-              <button
-                onClick={addDirectory}
-                disabled={running}
-                className="interactive-button rounded-2xl bg-sky-100 px-3 py-1.5 text-xs text-stone-950 disabled:opacity-50"
-              >
-                + 添加目录
-              </button>
-            </div>
-          </div>
-
-          {paths.length === 0 ? (
-            <div className="text-center py-8 text-stone-400 text-sm border border-dashed border-stone-200 rounded-2xl">
-              点击上方按钮添加图片文件或目录
-            </div>
-          ) : (
-            <ul className="space-y-1 max-h-40 overflow-y-auto">
-              {paths.map((p) => (
-                <li key={p} className="flex items-center gap-2 text-sm">
-                  <span className="text-stone-400 text-xs">📄</span>
-                  <span className="flex-1 truncate text-stone-700 font-mono text-xs" title={p}>
-                    {p}
-                  </span>
-                  <button
-                    onClick={() => removePath(p)}
-                    disabled={running}
-                    className="interactive-danger shrink-0 rounded-full px-1.5 text-xs text-stone-300 disabled:opacity-30"
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <label className="mt-3 flex items-center gap-2 cursor-pointer select-none w-fit">
-            <input
-              type="checkbox"
-              checked={recursive}
-              onChange={(e) => setRecursive(e.target.checked)}
-              disabled={running}
-              className="w-3.5 h-3.5 accent-[var(--theme-accent)] disabled:opacity-50"
-            />
-            <span className="text-xs text-stone-500">递归子目录</span>
-          </label>
-        </section>
+        <PathPickerPanel
+          paths={paths}
+          running={running}
+          filters={[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]}
+          emptyText="点击上方按钮添加图片文件或目录"
+          onChange={setPaths}
+          footer={<p className="mt-3 text-xs text-stone-500">
+            递归子目录：{compression.image.recursiveScan ? '开启' : '关闭'}，可在首选项中修改。
+          </p>}
+        />
 
         {/* Start button / Paused state */}
         {paused ? (
           <>
             {/* 暂停提示 */}
-            <section className="bg-orange-50 border border-orange-200 rounded-2xl px-4 py-3 text-sm text-orange-800 shrink-0">
+            <section className="shrink-0 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
               {keys
                 .filter((k) => k.status === 'valid')
                 .every((k) => k.compressionCount >= KEY_LIMIT) ? (
                 <>
-                  ⚠️ 所有 API Key 已达当月上限，还有{' '}
+                  所有 API Key 已达当月上限，还有{' '}
                   <span className="font-bold">{paused.remaining.length}</span> 张图片未处理。
                   请在上方添加新 Key 后点击继续。
                 </>
               ) : (
                 <>
-                  ⏸ 任务已暂停，还有 <span className="font-bold">{paused.remaining.length}</span>{' '}
+                  任务已暂停，还有 <span className="font-bold">{paused.remaining.length}</span>{' '}
                   张图片未处理。
                 </>
               )}
             </section>
             <div className="flex gap-3 shrink-0">
-              <button
+              <AppButton
                 onClick={() => startCompress(paused.remaining)}
-                className="interactive-button flex-1 rounded-2xl bg-sky-100 py-2.5 text-sm font-semibold text-stone-950"
+                variant="primary"
+                className="flex-1 py-2.5 text-sm"
               >
-                ▶ 继续压缩（{paused.remaining.length} 张）
-              </button>
-              <button
+                继续压缩（{paused.remaining.length} 张）
+              </AppButton>
+              <AppButton
                 onClick={() => {
                   setPaused(null)
                   toast.info('已放弃剩余图片任务')
                 }}
-                className="interactive-danger rounded-2xl border border-stone-200 px-4 py-2.5 text-sm text-stone-500"
+                variant="danger"
+                className="px-4 py-2.5 text-sm"
               >
                 放弃
-              </button>
+              </AppButton>
             </div>
           </>
         ) : running ? (
-          <button
+          <AppButton
             onClick={() => {
               toast.info('正在暂停图片压缩')
               stopImageCompression().catch((error) =>
                 toast.error(`暂停失败：${error?.message ?? error}`)
               )
             }}
-            className="w-full shrink-0 rounded-2xl bg-yellow-500 py-2.5 text-sm font-semibold text-white hover:bg-yellow-600"
+            variant="danger"
+            className="w-full shrink-0 py-2.5 text-sm"
           >
-            ⏸ 暂停 ({logs.length}/{total})
-          </button>
+            暂停 ({logs.length}/{total})
+          </AppButton>
         ) : (
-          <button
+          <AppButton
             onClick={() => startCompress()}
             disabled={running}
-            className="interactive-button w-full shrink-0 rounded-2xl bg-sky-100 py-2.5 text-sm font-semibold text-stone-950"
+            variant="primary"
+            className="w-full shrink-0 py-2.5 text-sm"
           >
-            🚀 开始压缩
-          </button>
+            开始压缩
+          </AppButton>
         )}
 
         {/* Stats — 紧凑横条，位于日志区上方 */}
         {stats && (
           <section className="shrink-0 bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-2.5 flex items-center gap-4 flex-wrap">
-            <span className="text-xs font-semibold text-emerald-900 shrink-0">✅ 压缩完成</span>
+            <span className="shrink-0 text-xs font-semibold text-emerald-900">压缩完成</span>
             <div className="flex gap-4 flex-1 flex-wrap">
               {[
                 { label: '总文件', value: stats.total, color: 'text-stone-700' },
@@ -371,7 +315,7 @@ export default function TinyPNG() {
 
         {/* Log / Compare tabs */}
         {logs.length > 0 && (
-          <section className="bg-white/72 rounded-3xl border border-white/70 shadow-sm shadow-stone-900/5 flex flex-col flex-1 min-h-0 overflow-hidden">
+          <AppPanel className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="px-4 py-2.5 border-b border-stone-100 flex items-center justify-between shrink-0">
               <div className="flex gap-0.5">
                 <button
@@ -523,9 +467,9 @@ export default function TinyPNG() {
                 <ComparePanel logs={logs} />
               </div>
             )}
-          </section>
+          </AppPanel>
         )}
       </div>
-    </div>
+    </PageLayout>
   )
 }

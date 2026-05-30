@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { checkTinypngKey, getTinypngKeys, updateTinypngKeys } from '../api/desktop'
 
 export const KEY_LIMIT = 500
-const LEGACY_STORAGE_KEY = 'tinypng_keys'
 
 function createEmptyKey() {
   return { value: '', status: 'idle', compressionCount: null, error: null }
@@ -15,18 +14,6 @@ function normalizeRuntimeKey(key) {
     compressionCount: key?.compressionCount ?? null,
     error: key?.error ?? null
   }
-}
-
-function loadLegacyStoredKeys() {
-  try {
-    const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed.map(normalizeRuntimeKey)
-  } catch {
-    return null
-  }
-  return null
 }
 
 export function getValidTinypngKeyValues(keys) {
@@ -63,8 +50,7 @@ export function useTinypngKeys({ autoValidate = false, toast = null } = {}) {
     async function loadKeys() {
       try {
         const stored = await getTinypngKeys()
-        const legacy = loadLegacyStoredKeys()
-        const next = stored?.length ? stored.map(normalizeRuntimeKey) : legacy
+        const next = stored?.length ? stored.map(normalizeRuntimeKey) : null
 
         if (active && next?.length) {
           const restored = next.map((key) => ({ ...key, status: 'idle', error: null }))
@@ -122,12 +108,6 @@ export function useTinypngKeys({ autoValidate = false, toast = null } = {}) {
           }
         }
 
-        if (!stored?.length && legacy?.length) {
-          await updateTinypngKeys(
-            legacy.map(({ value, compressionCount }) => ({ value, compressionCount }))
-          )
-          localStorage.removeItem(LEGACY_STORAGE_KEY)
-        }
       } catch (error) {
         console.error('[tinypng] failed to load stored keys', error)
       } finally {

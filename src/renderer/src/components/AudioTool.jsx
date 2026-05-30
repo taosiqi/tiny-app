@@ -2,10 +2,13 @@
  * @file AudioTool.jsx
  * @description 音频压缩工具组件，支持取消、重试、日志筛选和压缩结果对比。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useCallback, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ComparePanel from './ComparePanel'
 import CompareFullscreen from './CompareFullscreen'
+import PathPickerPanel from './PathPickerPanel'
+import { AppButton, AppPanel } from './ui/base'
+import { PageHeader, PageLayout } from './ui/page'
 import { useToast } from '../toast/useToast'
 import {
   compressAudio,
@@ -13,14 +16,12 @@ import {
   onAudioPaused,
   onAudioProgress,
   onAudioTotal,
-  openDirectories,
-  openFiles,
   stopAudioCompression
 } from '../api/desktop'
 import { basename } from '../utils/fileUtils'
 import { useSettings } from '../settings/useSettings'
-import { getPreset, PRESET_IDS, PRESET_META } from '../tasks/taskPresets'
-import { createTaskRecord, finishTaskRecord, upsertTaskRecord } from '../tasks/taskHistory'
+import { audioPayload, audioSummary, cloneCompression } from '../settings/compressionSettings'
+import { createTaskRecord, finishTaskRecord, updateTaskRecordStats, upsertTaskRecord } from '../tasks/taskHistory'
 
 const STATUS_CLASS = {
   success: 'bg-green-100 text-emerald-700',
@@ -57,17 +58,6 @@ const FORMAT_META = {
   }
 }
 
-const FORMAT_OPTIONS = [
-  ['mixed', '混合'],
-  ['mp3', 'MP3'],
-  ['ogg', 'OGG'],
-  ['wav', 'WAV']
-]
-
-function normalizeFormat(format) {
-  return FORMAT_META[format] ? format : 'mixed'
-}
-
 function statusText(status) {
   if (status === 'success') return '✓ 压缩'
   if (status === 'skipped') return '— 跳过'
@@ -79,11 +69,9 @@ function statusText(status) {
 export default function AudioTool() {
   const toast = useToast()
   const { settings } = useSettings()
-  const [presetId, setPresetId] = useState(settings.defaultPresetId)
-  const preset = getPreset(settings, presetId)
-  const [searchParams, setSearchParams] = useSearchParams()
-  const [format, setFormat] = useState(() => normalizeFormat(searchParams.get('format')))
-  const meta = FORMAT_META[format]
+  const navigate = useNavigate()
+  const compression = cloneCompression(settings.compression)
+  const meta = FORMAT_META.mixed
   const [paths, setPaths] = useState([])
   const [logs, setLogs] = useState([])
   const [stats, setStats] = useState(null)
@@ -93,42 +81,14 @@ export default function AudioTool() {
   const [activeTab, setActiveTab] = useState('log')
   const [compareFullscreen, setCompareFullscreen] = useState(false)
   const [logFilter, setLogFilter] = useState('all')
-  const [recursive, setRecursive] = useState(preset.recursiveScan)
   const taskRecordRef = useRef(null)
   const logRef = useRef(null)
-
-  useEffect(() => {
-    setFormat(normalizeFormat(searchParams.get('format')))
-  }, [searchParams])
-
-  const changeFormat = (nextFormat) => {
-    setFormat(nextFormat)
-    setSearchParams(nextFormat === 'mixed' ? {} : { format: nextFormat })
-  }
 
   const scrollBottom = useCallback(() => {
     setTimeout(() => {
       if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
     }, 50)
   }, [])
-
-  const addFiles = async () => {
-    const files = await openFiles({ filters: [meta.filter] })
-    if (files.length > 0) {
-      setPaths((prev) => [...new Set([...prev, ...files])])
-      toast.info(`已添加 ${files.length} 个音频文件`)
-    }
-  }
-
-  const addDirectory = async () => {
-    const dirs = await openDirectories()
-    if (dirs.length > 0) {
-      setPaths((prev) => [...new Set([...prev, ...dirs])])
-      toast.info(`已添加 ${dirs.length} 个音频目录`)
-    }
-  }
-
-  const removePath = (path) => setPaths((prev) => prev.filter((item) => item !== path))
 
   const startCompress = async (filesToProcess, { isRetry = false } = {}) => {
     const targetFiles = filesToProcess ?? paths
@@ -147,15 +107,21 @@ export default function AudioTool() {
     setRunning(true)
     const taskRecord = createTaskRecord({
       source: 'audio',
-      presetId: preset.id,
-      presetSnapshot: { ...preset, audioFormat: format, recursiveScan: recursive },
+      compressionSnapshot: compression,
       inputCount: targetFiles.length
     })
     taskRecordRef.current = taskRecord
     upsertTaskRecord(taskRecord)
     toast.info(isRetry ? `正在重试 ${targetFiles.length} 个失败项` : '开始压缩音频')
 
-    const cleanTotal = onAudioTotal((count) => setTotal(count))
+    const cleanTotal = onAudioTotal((count) => {
+      setTotal(count)
+      if (taskRecordRef.current) {
+        const next = updateTaskRecordStats(taskRecordRef.current, taskRecordRef.current.logs, count)
+        taskRecordRef.current = next
+        upsertTaskRecord(next)
+      }
+    })
     const cleanProgress = onAudioProgress((item) => {
       if (isRetry) {
         setLogs((prev) => {
@@ -171,7 +137,7 @@ export default function AudioTool() {
       scrollBottom()
       const record = taskRecordRef.current
       if (record) {
-        const next = { ...record, logs: [...record.logs, item] }
+        const next = updateTaskRecordStats(record, [...record.logs, item])
         taskRecordRef.current = next
         upsertTaskRecord(next)
       }
@@ -188,7 +154,6 @@ export default function AudioTool() {
       toast.success(`音频压缩完成：成功 ${nextStats.processed}，失败 ${nextStats.failed}，跳过 ${nextStats.skipped}`)
       if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, nextStats.failed > 0 ? 'error' : 'success', nextStats, taskRecordRef.current.logs))
       cleanup()
-      if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, 'paused', taskRecordRef.current.stats, taskRecordRef.current.logs))
     })
     const cleanPaused = onAudioPaused(({ remaining }) => {
       setPaused({ remaining })
@@ -198,16 +163,27 @@ export default function AudioTool() {
         ...prev,
         {
           file: remaining[0] ?? `${meta.label}任务`,
-          format,
+          format: 'mixed',
           status: 'paused',
           error: `任务已暂停，剩余 ${remaining.length} 个文件`
         }
       ])
+      if (taskRecordRef.current) {
+        const pauseLog = {
+          file: remaining[0] ?? `${meta.label}任务`,
+          format: 'mixed',
+          status: 'paused',
+          error: `任务已暂停，剩余 ${remaining.length} 个文件`
+        }
+        const next = updateTaskRecordStats(taskRecordRef.current, [...taskRecordRef.current.logs, pauseLog])
+        taskRecordRef.current = finishTaskRecord(next, 'paused', next.stats, next.logs)
+        upsertTaskRecord(taskRecordRef.current)
+      }
       cleanup()
     })
 
     try {
-      await compressAudio({ paths: targetFiles, format, quality: preset.audioQuality, recursive })
+      await compressAudio(audioPayload(targetFiles, compression))
     } catch (error) {
       setRunning(false)
       toast.error(`音频压缩失败：${error?.message ?? error}`)
@@ -215,14 +191,14 @@ export default function AudioTool() {
         ...prev,
         {
           file: targetFiles[0] ?? `${meta.label}任务`,
-          format,
+          format: 'mixed',
           status: 'error',
           error: error?.message ?? String(error)
         }
       ])
       cleanup()
       if (taskRecordRef.current) {
-        const nextLogs = [...taskRecordRef.current.logs, { file: targetFiles[0] ?? `${meta.label}任务`, format, status: 'error', error: error?.message ?? String(error) }]
+        const nextLogs = [...taskRecordRef.current.logs, { file: targetFiles[0] ?? `${meta.label}任务`, format: 'mixed', status: 'error', error: error?.message ?? String(error) }]
         upsertTaskRecord(finishTaskRecord(taskRecordRef.current, 'error', taskRecordRef.current.stats, nextLogs))
       }
     }
@@ -234,103 +210,22 @@ export default function AudioTool() {
   const skippedCount = logs.filter((item) => item.status === 'skipped').length
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <PageLayout>
       {compareFullscreen && <CompareFullscreen logs={logs} onClose={() => setCompareFullscreen(false)} />}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-7 py-6">
-        <section className="shrink-0 rounded-3xl border border-white/70 bg-white/72 p-5 shadow-sm shadow-stone-900/5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-bold text-stone-800">{meta.label}</h3>
-              <p className="mt-1 text-xs text-stone-500">{meta.desc}</p>
-            </div>
-            <div className="flex rounded-2xl border border-stone-200 p-1">
-              {FORMAT_OPTIONS.map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => changeFormat(id)}
-                  disabled={running}
-                  className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    format === id ? 'tab-active' : 'interactive-ghost text-stone-400'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="mb-3 block text-xs font-bold text-stone-600">
-            压缩预设
-            <select
-              aria-label="压缩预设"
-              value={preset.id}
-              disabled={running}
-              onChange={(event) => {
-                const next = getPreset(settings, event.target.value)
-                setPresetId(next.id)
-                setFormat(next.audioFormat)
-                setRecursive(next.recursiveScan)
-              }}
-              className="app-input ml-2 rounded-xl border px-2 py-1 text-xs"
-            >
-              {PRESET_IDS.map((id) => <option key={id} value={id}>{PRESET_META[id].label}</option>)}
-            </select>
-          </label>
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm font-medium text-stone-700">目标路径</span>
-            <div className="flex gap-2">
-              <button
-                onClick={addFiles}
-                disabled={running}
-                className="interactive-button rounded-2xl bg-sky-100 px-3 py-1.5 text-xs text-stone-950 disabled:opacity-50"
-              >
-                + 添加文件
-              </button>
-              <button
-                onClick={addDirectory}
-                disabled={running}
-                className="interactive-button rounded-2xl bg-sky-100 px-3 py-1.5 text-xs text-stone-950 disabled:opacity-50"
-              >
-                + 添加目录
-              </button>
-            </div>
-          </div>
-
-          {paths.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-stone-200 py-8 text-center text-sm text-stone-400">
-              点击上方按钮添加 {meta.ext} 文件或目录
-            </div>
-          ) : (
-            <ul className="max-h-40 space-y-1 overflow-y-auto">
-              {paths.map((path) => (
-                <li key={path} className="flex items-center gap-2 text-sm">
-                  <span className="text-xs text-stone-400">AUD</span>
-                  <span className="flex-1 truncate font-mono text-xs text-stone-700" title={path}>
-                    {path}
-                  </span>
-                  <button
-                    onClick={() => removePath(path)}
-                    disabled={running}
-                    className="interactive-danger shrink-0 rounded-full px-1.5 text-xs text-stone-300 disabled:opacity-30"
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <label className="mt-3 flex w-fit cursor-pointer select-none items-center gap-2">
-            <input
-              type="checkbox"
-              checked={recursive}
-              onChange={(event) => setRecursive(event.target.checked)}
-              disabled={running}
-              className="h-3.5 w-3.5 accent-[var(--theme-accent)] disabled:opacity-50"
-            />
-            <span className="text-xs text-stone-500">递归子目录</span>
-          </label>
-        </section>
+      <PageHeader
+        title={meta.label}
+        description={meta.desc}
+        actions={<AppButton type="button" variant="ghost" onClick={() => navigate('/settings')} className="px-3 py-1.5 text-xs">修改压缩设置</AppButton>}
+      />
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+        <PathPickerPanel
+          paths={paths}
+          running={running}
+          filters={[meta.filter]}
+          emptyText={`点击上方按钮添加 ${meta.ext} 文件或目录`}
+          onChange={setPaths}
+          footer={<p className="mt-3 text-xs text-stone-500">{audioSummary(compression)}，递归子目录：{compression.audio.recursiveScan ? '开启' : '关闭'}</p>}
+        />
 
         {paused ? (
           <>
@@ -338,40 +233,44 @@ export default function AudioTool() {
               任务已暂停，还有 <span className="font-bold">{paused.remaining.length}</span> 个音频文件未处理。
             </section>
             <div className="flex shrink-0 gap-3">
-              <button
+              <AppButton
                 onClick={() => startCompress(paused.remaining)}
-                className="interactive-button flex-1 rounded-2xl bg-sky-100 py-2.5 text-sm font-semibold text-stone-950"
+                variant="primary"
+                className="flex-1 py-2.5 text-sm"
               >
                 继续压缩（{paused.remaining.length} 个）
-              </button>
-              <button
+              </AppButton>
+              <AppButton
                 onClick={() => {
                   setPaused(null)
                   toast.info('已放弃剩余音频任务')
                 }}
-                className="interactive-danger rounded-2xl border border-stone-200 px-4 py-2.5 text-sm text-stone-500"
+                variant="danger"
+                className="px-4 py-2.5 text-sm"
               >
                 放弃
-              </button>
+              </AppButton>
             </div>
           </>
         ) : running ? (
-          <button
+          <AppButton
             onClick={() => {
               toast.info('正在暂停音频压缩')
               stopAudioCompression().catch((error) => toast.error(`暂停失败：${error?.message ?? error}`))
             }}
-            className="w-full shrink-0 rounded-2xl bg-yellow-500 py-2.5 text-sm font-semibold text-white hover:bg-yellow-600"
+            variant="danger"
+            className="w-full shrink-0 py-2.5 text-sm"
           >
             暂停 ({logs.length}/{total})
-          </button>
+          </AppButton>
         ) : (
-          <button
+          <AppButton
             onClick={() => startCompress()}
-            className="interactive-button w-full shrink-0 rounded-2xl bg-sky-100 py-2.5 text-sm font-semibold text-stone-950"
+            variant="primary"
+            className="w-full shrink-0 py-2.5 text-sm"
           >
             开始压缩
-          </button>
+          </AppButton>
         )}
 
         {stats && (
@@ -396,7 +295,7 @@ export default function AudioTool() {
         )}
 
         {logs.length > 0 && (
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/72 shadow-sm shadow-stone-900/5">
+          <AppPanel className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex shrink-0 items-center justify-between border-b border-stone-100 px-4 py-2.5">
               <div className="flex gap-0.5">
                 <button
@@ -524,9 +423,9 @@ export default function AudioTool() {
                 <ComparePanel logs={logs} />
               </div>
             )}
-          </section>
+          </AppPanel>
         )}
       </div>
-    </div>
+    </PageLayout>
   )
 }

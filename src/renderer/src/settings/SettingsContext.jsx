@@ -7,27 +7,20 @@ import {
   updateNativeTheme
 } from '../api/desktop'
 import { SettingsContext } from './settingsStateContext'
-import {
-  DEFAULT_COMPRESSION_PRESETS,
-  DEFAULT_PRESET_ID
-} from '../tasks/taskPresets'
+import { cloneCompression, DEFAULT_COMPRESSION } from './compressionSettings'
 
 const DEFAULT_SETTINGS = {
   nightMode: 'system',
   closeBehavior: 'background',
   backupDirName: '_tiny_backup',
-  defaultPresetId: DEFAULT_PRESET_ID,
-  compressionPresets: DEFAULT_COMPRESSION_PRESETS
+  compression: DEFAULT_COMPRESSION
 }
 
 function normalizeClientSettings(settings = {}) {
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
-    compressionPresets: {
-      ...DEFAULT_COMPRESSION_PRESETS,
-      ...(settings.compressionPresets ?? {})
-    }
+    compression: cloneCompression(settings.compression)
   }
 }
 
