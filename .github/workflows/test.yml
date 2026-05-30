@@ -37,5 +37,4 @@ jobs:
       - run: pnpm test:fixtures
       - run: VITE_TINYPRESS_E2E=1 pnpm vite:build
       - run: cargo build --manifest-path src-tauri/Cargo.toml
-      - run: xvfb-run --auto-servernum tauri-driver &
-      - run: pnpm test:desktop:e2e
+      - run: node desktop-e2e/tinify-mock.mjs & TINYPRESS_TINIFY_ENDPOINT=http://127.0.0.1:18765/shrink xvfb-run --auto-servernum tauri-driver & pnpm test:desktop:e2e

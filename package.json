@@ -17,7 +17,7 @@
     "test:e2e": "playwright test",
     "test:fixtures": "node scripts/create-test-fixtures.mjs",
     "test:smoke": "pnpm test:fixtures && cargo test --manifest-path src-tauri/Cargo.toml smoke_",
-    "test:desktop:e2e": "pnpm test:fixtures && wdio run desktop-e2e/wdio.conf.js",
+    "test:desktop:e2e": "pnpm test:fixtures && node desktop-e2e/run.mjs",
     "test:all": "pnpm lint && pnpm test:frontend && pnpm test:rust && pnpm test:build",
     "dev": "tauri dev",
     "build": "tauri build",
