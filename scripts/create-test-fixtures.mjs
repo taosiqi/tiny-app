@@ -15,6 +15,11 @@ ensure(file('_tiny_backup'))
 
 run('-f', 'lavfi', '-i', 'color=c=blue:s=96x64', '-frames:v', '1', file('sample.png'))
 run('-f', 'lavfi', '-i', 'color=c=green:s=96x64', '-frames:v', '1', file('sample.jpg'))
+run('-f', 'lavfi', '-i', 'color=c=yellow:s=96x64', '-frames:v', '1', file('sample.webp'))
+run('-f', 'lavfi', '-i', 'color=c=purple:s=96x64', '-frames:v', '1', '-c:v', 'libaom-av1', '-still-picture', '1', file('sample.avif'))
+run('-f', 'lavfi', '-i', 'color=c=red@0.45:s=96x64,format=rgba', '-frames:v', '1', file('transparent.png'))
+run('-f', 'lavfi', '-i', 'testsrc=size=96x64:rate=2:duration=2', '-loop', '0', file('animated.webp'))
+run('-f', 'lavfi', '-i', 'testsrc=size=96x64:rate=2:duration=2', '-f', 'apng', '-plays', '0', file('animated.png'))
 run('-f', 'lavfi', '-i', 'color=c=red:s=48x48', '-frames:v', '1', file('nested', 'nested.png'))
 run('-f', 'lavfi', '-i', 'sine=frequency=880:duration=2', '-b:a', '256k', file('sample.mp3'))
 run('-f', 'lavfi', '-i', 'sine=frequency=660:duration=2', '-b:a', '192k', file('sample.ogg'))
@@ -24,7 +29,7 @@ writeFileSync(file('_tiny_backup', 'ignored.png'), 'excluded backup directory\n'
 
 const manifest = {
   root,
-  images: [file('sample.png'), file('sample.jpg'), file('nested', 'nested.png')],
+  images: [file('sample.png'), file('sample.jpg'), file('sample.webp'), file('sample.avif'), file('transparent.png'), file('animated.webp'), file('animated.png'), file('nested', 'nested.png')],
   audio: [file('sample.mp3'), file('sample.ogg'), file('sample.wav')],
   directories: [root, file('nested'), root],
   invalid: [file('ignore.txt')],

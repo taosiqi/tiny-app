@@ -28,7 +28,7 @@ import {
 import { KEY_LIMIT, useTinypngKeys } from '../tinypng/useTinypngKeys'
 import { basename } from '../utils/fileUtils'
 import { useSettings } from '../settings/useSettings'
-import { cloneCompression } from '../settings/compressionSettings'
+import { cloneCompression, imagePayload } from '../settings/compressionSettings'
 import { createTaskRecord, finishTaskRecord, updateTaskRecordStats, upsertTaskRecord } from '../tasks/taskHistory'
 
 /** 日志条目状态 → Tailwind 色彩类映射 */
@@ -96,7 +96,7 @@ export default function TinyPNG() {
   const startCompress = async (filesToProcess, { isRetry = false } = {}) => {
     const targetFiles = filesToProcess ?? paths
     const validKeys = validKeyValues
-    if (validKeys.length === 0) {
+    if (compression.image.engine === 'tinify' && validKeys.length === 0) {
       toast.warning('请先填写 TinyPNG API Key')
       return
     }
@@ -191,7 +191,7 @@ export default function TinyPNG() {
     })
 
     try {
-      await compressImage({ paths: targetFiles, apiKeys: validKeys, recursive: compression.image.recursiveScan })
+      await compressImage(imagePayload(targetFiles, compression, validKeys))
     } catch (error) {
       setRunning(false)
       toast.error(`图片压缩失败：${error?.message ?? error}`)
@@ -219,32 +219,37 @@ export default function TinyPNG() {
   const usableKeys = checkedKeys.filter((key) => (key.compressionCount ?? 0) < KEY_LIMIT)
   const remainingQuota = usableKeys.reduce((sum, key) => sum + Math.max(0, KEY_LIMIT - (key.compressionCount ?? 0)), 0)
   const checkingKeys = keys.filter((key) => key.status === 'checking').length
+  const imageEngine = compression.image.engine
 
   return (
     <PageLayout>
       {compareFullscreen && (
         <CompareFullscreen logs={logs} onClose={() => setCompareFullscreen(false)} />
       )}
-      <PageHeader title="图片压缩" description="使用 TinyPNG 自动优化 PNG、JPG 和 JPEG 文件。" />
+      <PageHeader title="图片压缩" description="压缩 PNG、JPEG、WebP 和 AVIF 图片。" />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
         <AppPanel className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
-            <span className="font-bold text-stone-800">TinyPNG Key</span>
-            <StatusPill tone={usableKeys.length > 0 ? 'success' : checkingKeys > 0 ? 'info' : 'warning'}>
-              {checkingKeys > 0 ? `正在校验 ${checkingKeys} 个` : `可用 ${usableKeys.length} 个`}
-            </StatusPill>
-            <span>剩余额度合计 {remainingQuota} 次</span>
+            <span className="font-bold text-stone-800">
+              {imageEngine === 'local' ? '本地压缩 · 离线可用' : imageEngine === 'tinify' ? 'Tinify API' : '自动选择'}
+            </span>
+            {imageEngine !== 'local' && <>
+              <StatusPill tone={usableKeys.length > 0 ? 'success' : checkingKeys > 0 ? 'info' : 'warning'}>
+                {checkingKeys > 0 ? `正在校验 ${checkingKeys} 个` : `可用 Key ${usableKeys.length} 个`}
+              </StatusPill>
+              <span>剩余额度合计 {remainingQuota} 次</span>
+            </>}
           </div>
-          <AppButton type="button" variant="ghost" onClick={() => navigate('/settings?tab=image')} className="px-3 py-1.5 text-xs">
+          {imageEngine !== 'local' && <AppButton type="button" variant="ghost" onClick={() => navigate('/settings?tab=image')} className="px-3 py-1.5 text-xs">
             管理 Key
-          </AppButton>
+          </AppButton>}
         </AppPanel>
 
         {/* Paths */}
         <PathPickerPanel
           paths={paths}
           running={running}
-          filters={[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]}
+          filters={[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'avif'] }]}
           emptyText="点击上方按钮添加图片文件或目录"
           onChange={setPaths}
           compact
@@ -458,6 +463,8 @@ export default function TinyPNG() {
                     >
                       {basename(item.file)}
                     </span>
+                    {item.engine && <StatusPill tone={item.engine === 'local' ? 'neutral' : 'info'}>{item.engine === 'local' ? '本地' : 'Tinify'}</StatusPill>}
+                    {item.warnings?.length > 0 && <span className="max-w-48 truncate text-xs text-amber-600" title={item.warnings.join('；')}>{item.warnings.join('；')}</span>}
                     {item.status === 'success' && (
                       <span className="text-xs text-emerald-600 shrink-0">
                         {item.inputSize} → {item.outputSize}{' '}

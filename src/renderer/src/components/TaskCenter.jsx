@@ -6,7 +6,7 @@ import { PageHeader, PageLayout } from './ui/page'
 import { clearTaskRecords, deleteTaskRecord, loadTaskRecords } from '../tasks/taskHistory'
 import { useToast } from '../toast/useToast'
 
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg']
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'avif']
 const AUDIO_EXTENSIONS = ['mp3', 'ogg', 'wav']
 const REPORT_COLUMNS = ['kind', 'status', 'file', 'backupPath', 'inputSize', 'outputSize', 'saved', 'reason', 'error']
 

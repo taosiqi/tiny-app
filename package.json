@@ -1,6 +1,6 @@
 {
   "name": "tiny-app",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "一款基于 Tauri 的本地文件优化工作台，支持 TinyPNG 图片压缩、音频压缩与任务记录",
   "author": {
     "name": "taosiqi",
@@ -16,13 +16,14 @@
     "test:build": "vite build",
     "test:e2e": "playwright test",
     "test:fixtures": "node scripts/create-test-fixtures.mjs",
+    "prepare:ffmpeg": "node scripts/prepare-ffmpeg-resource.mjs",
     "test:smoke": "pnpm test:fixtures && cargo test --manifest-path src-tauri/Cargo.toml smoke_",
     "test:desktop:e2e": "pnpm test:fixtures && node desktop-e2e/run.mjs",
     "test:all": "pnpm lint && pnpm test:frontend && pnpm test:rust && pnpm test:build",
     "dev": "tauri dev",
     "build": "tauri build",
     "vite:dev": "vite --host 127.0.0.1",
-    "vite:build": "vite build",
+    "vite:build": "pnpm prepare:ffmpeg && vite build",
     "preview": "vite preview",
     "build:mac": "tauri build --bundles app,dmg",
     "build:win": "tauri build --bundles nsis",

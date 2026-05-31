@@ -1,3 +1,4 @@
+use crate::settings::LocalImageSettings;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -6,6 +7,8 @@ pub(crate) struct ImagePayload {
     pub paths: Vec<String>,
     pub api_keys: Vec<String>,
     pub recursive: Option<bool>,
+    pub engine: String,
+    pub local: LocalImageSettings,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +78,8 @@ pub(crate) struct ProgressItem {
     pub saved: Option<String>,
     pub reason: Option<String>,
     pub error: Option<String>,
+    pub engine: Option<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -220,4 +225,6 @@ pub(crate) struct CompressionResult {
     pub saved_bytes: Option<u64>,
     pub reason: Option<String>,
     pub compression_count: u32,
+    pub engine: Option<String>,
+    pub warnings: Vec<String>,
 }

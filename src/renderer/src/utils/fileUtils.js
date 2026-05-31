@@ -8,7 +8,7 @@ export function basename(p) {
   return p.replace(/\\/g, '/').split('/').pop()
 }
 
-const IMG_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
+const IMG_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'])
 const AUDIO_EXTS = new Set(['.mp3', '.ogg', '.wav', '.flac', '.m4a', '.aac'])
 const TEXT_EXTS = new Set(['.txt', '.json', '.md', '.css', '.js', '.jsx', '.ts', '.tsx', '.html', '.xml'])
 
