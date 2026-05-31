@@ -88,7 +88,11 @@ export function SettingsProvider({ children }) {
     [settings]
   )
 
-  const value = useMemo(() => ({ settings, ready, saveSettings }), [ready, saveSettings, settings])
+  const replaceSettings = useCallback((next) => {
+    setSettings(normalizeClientSettings(next))
+  }, [])
+
+  const value = useMemo(() => ({ settings, ready, saveSettings, replaceSettings }), [ready, replaceSettings, saveSettings, settings])
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 }

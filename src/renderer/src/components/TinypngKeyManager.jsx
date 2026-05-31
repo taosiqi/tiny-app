@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import PropTypes from 'prop-types'
 import { openExternal } from '../api/desktop'
 import { useToast } from '../toast/useToast'
 import { AppButton, AppCard, AppInput, StatusPill } from './ui/base'
 import { KEY_LIMIT, useTinypngKeys } from '../tinypng/useTinypngKeys'
+import AppConfirmDialog from './ui/AppConfirmDialog'
 
 export function TinypngKeyManagerView({
   controller,
@@ -12,6 +14,9 @@ export function TinypngKeyManagerView({
 }) {
   const toast = useToast()
   const { keys, addKey, removeKey, updateKey, checkKey, checkAllKeys, ready } = controller
+  const [deleteIndex, setDeleteIndex] = useState(null)
+  const deleteKey = deleteIndex === null ? null : keys[deleteIndex]
+  const maskedKey = deleteKey?.value ? `...${deleteKey.value.slice(-4)}` : '空 Key'
 
   const openDeveloperPage = () => {
     openExternal('https://tinify.com/developers').catch((error) =>
@@ -21,6 +26,18 @@ export function TinypngKeyManagerView({
 
   return (
     <div className="space-y-3">
+      <AppConfirmDialog
+        open={deleteIndex !== null}
+        title="删除 TinyPNG Key"
+        description={`确认删除 ${maskedKey}？删除后无法撤销。`}
+        confirmLabel="删除"
+        onCancel={() => setDeleteIndex(null)}
+        onConfirm={() => {
+          removeKey(deleteIndex)
+          setDeleteIndex(null)
+          toast.success('TinyPNG Key 已删除')
+        }}
+      />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-bold text-stone-800">{title}</h3>
@@ -107,7 +124,7 @@ export function TinypngKeyManagerView({
               <AppButton
                 type="button"
                 variant="danger"
-                onClick={() => removeKey(index)}
+                onClick={() => setDeleteIndex(index)}
                 disabled={disabled || !ready}
                 className="h-8 w-14 shrink-0 px-2 text-xs"
               >

@@ -25,6 +25,7 @@ use platform::{
     create_app_menu, create_status_bar, open_external, open_in_finder, quit_from_setting,
     show_main_window,
 };
+use serde::{Deserialize, Serialize};
 use settings::{
     current_backup_dir_name, is_valid_backup_dir_name, load_settings, normalize_settings,
     normalize_tinypng_keys, persist_settings, should_hide_instead_of_quit, AppSettings,
@@ -68,6 +69,52 @@ fn update_app_settings(
     let mut current = state.value.lock().map_err(|e| e.to_string())?;
     normalized.tinypng_keys = current.tinypng_keys.clone();
     persist_settings(&state.config_path, &normalized)?;
+    *current = normalized.clone();
+    Ok(normalized)
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ExportedSettings {
+    format: String,
+    version: u32,
+    settings: AppSettings,
+}
+
+fn encode_exported_settings(settings: AppSettings) -> AppResult<String> {
+    serde_json::to_string_pretty(&ExportedSettings {
+        format: "tinypress-settings".into(),
+        version: 1,
+        settings,
+    })
+    .map_err(|e| e.to_string())
+}
+
+fn decode_exported_settings(raw: &str) -> AppResult<AppSettings> {
+    let exported: ExportedSettings = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    if exported.format != "tinypress-settings" {
+        return Err("不是 TinyPress 配置文件".into());
+    }
+    if exported.version != 1 {
+        return Err(format!("不支持的配置文件版本：{}", exported.version));
+    }
+    Ok(normalize_settings(exported.settings))
+}
+
+#[tauri::command]
+fn export_app_settings(state: State<'_, SettingsState>, target_path: String) -> AppResult<()> {
+    let settings = state.value.lock().map_err(|e| e.to_string())?.clone();
+    fs::write(target_path, encode_exported_settings(settings)?).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn import_app_settings(
+    state: State<'_, SettingsState>,
+    source_path: String,
+) -> AppResult<AppSettings> {
+    let raw = fs::read_to_string(source_path).map_err(|e| e.to_string())?;
+    let normalized = decode_exported_settings(&raw)?;
+    persist_settings(&state.config_path, &normalized)?;
+    let mut current = state.value.lock().map_err(|e| e.to_string())?;
     *current = normalized.clone();
     Ok(normalized)
 }
@@ -514,6 +561,8 @@ pub fn run() {
             get_app_version,
             get_app_settings,
             update_app_settings,
+            export_app_settings,
+            import_app_settings,
             get_runtime_health,
             get_tinypng_keys,
             update_tinypng_keys,
@@ -1504,6 +1553,37 @@ mod tests {
         assert_eq!(normalized.compression.audio.wav.channels, 2);
         assert_eq!(normalized.tinypng_keys[0].value, "key");
         assert_eq!(normalized.tinypng_keys[0].compression_count, Some(8));
+    }
+
+    #[test]
+    fn exports_and_imports_complete_settings_with_keys() {
+        let mut settings = AppSettings::default();
+        settings.night_mode = "dark".into();
+        settings.tinypng_keys = vec![StoredTinypngKey {
+            value: "secret-key".into(),
+            compression_count: Some(12),
+        }];
+
+        let encoded = encode_exported_settings(settings).unwrap();
+        let decoded = decode_exported_settings(&encoded).unwrap();
+
+        assert!(encoded.contains("\"format\": \"tinypress-settings\""));
+        assert!(encoded.contains("\"version\": 1"));
+        assert_eq!(decoded.night_mode, "dark");
+        assert_eq!(decoded.tinypng_keys[0].value, "secret-key");
+        assert_eq!(decoded.tinypng_keys[0].compression_count, Some(12));
+    }
+
+    #[test]
+    fn rejects_invalid_or_unknown_settings_exports() {
+        assert!(decode_exported_settings("not json").is_err());
+        assert!(
+            decode_exported_settings(r#"{"format":"other","version":1,"settings":{}}"#).is_err()
+        );
+        assert!(decode_exported_settings(
+            r#"{"format":"tinypress-settings","version":2,"settings":{}}"#
+        )
+        .is_err());
     }
 
     #[test]

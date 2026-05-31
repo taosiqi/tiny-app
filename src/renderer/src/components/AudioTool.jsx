@@ -2,8 +2,8 @@
  * @file AudioTool.jsx
  * @description 音频压缩工具组件，支持取消、重试、日志筛选和压缩结果对比。
  */
-import { useCallback, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import ComparePanel from './ComparePanel'
 import CompareFullscreen from './CompareFullscreen'
 import PathPickerPanel from './PathPickerPanel'
@@ -70,6 +70,7 @@ export default function AudioTool() {
   const toast = useToast()
   const { settings } = useSettings()
   const navigate = useNavigate()
+  const location = useLocation()
   const compression = cloneCompression(settings.compression)
   const meta = FORMAT_META.mixed
   const [paths, setPaths] = useState([])
@@ -83,6 +84,17 @@ export default function AudioTool() {
   const [logFilter, setLogFilter] = useState('all')
   const taskRecordRef = useRef(null)
   const logRef = useRef(null)
+  const retryTokenRef = useRef(null)
+
+  useEffect(() => {
+    const retryToken = location.state?.retryToken
+    const retryPaths = location.state?.retryPaths
+    if (!retryToken || retryTokenRef.current === retryToken || !Array.isArray(retryPaths)) return
+    retryTokenRef.current = retryToken
+    setPaths((items) => [...new Set([...items, ...retryPaths])])
+    toast.info(`已加入 ${retryPaths.length} 个待重试音频`)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate, toast])
 
   const scrollBottom = useCallback(() => {
     setTimeout(() => {
@@ -224,6 +236,7 @@ export default function AudioTool() {
           filters={[meta.filter]}
           emptyText={`点击上方按钮添加 ${meta.ext} 文件或目录`}
           onChange={setPaths}
+          compact
           footer={<p className="mt-3 text-xs text-stone-500">{audioSummary(compression)}，递归子目录：{compression.audio.recursiveScan ? '开启' : '关闭'}</p>}
         />
 

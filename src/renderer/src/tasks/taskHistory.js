@@ -1,5 +1,4 @@
 export const TASK_RECORDS_KEY = 'tinypress_task_records_v4'
-export const TASK_HISTORY_KEY = TASK_RECORDS_KEY
 
 const RECORD_LIMIT = 30
 

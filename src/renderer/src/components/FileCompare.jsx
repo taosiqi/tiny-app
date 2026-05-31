@@ -10,6 +10,7 @@ import { basename, formatTimestamp } from '../utils/fileUtils'
 import { useToast } from '../toast/useToast'
 import { AppButton, AppPanel, EmptyState } from './ui/base'
 import { PageHeader, PageLayout } from './ui/page'
+import ImageCompareSlider from './ImageCompareSlider'
 
 function toLocalURL(filePath) {
   return filePath ? convertFileSrc(filePath) : ''
@@ -119,7 +120,6 @@ MetadataCard.propTypes = {
 }
 
 function ImagePreview({ result }) {
-  const [position, setPosition] = useState(50)
   if (result.left.kind !== 'image' || result.right.kind !== 'image') return null
 
   return (
@@ -128,23 +128,7 @@ function ImagePreview({ result }) {
         <h3 className="text-sm font-bold text-stone-800">图片对比</h3>
         <span className="text-xs text-stone-400">拖动滑块查看左右文件</span>
       </div>
-      <div className="relative h-80 overflow-hidden rounded-2xl border border-stone-200 bg-white">
-        <img src={toLocalURL(result.right.path)} alt="right" className="h-full w-full object-contain" />
-        <div className="absolute inset-y-0 left-0 overflow-hidden bg-white" style={{ width: `${position}%` }}>
-          <div className="h-full" style={{ width: `${10000 / Math.max(position, 1)}%` }}>
-            <img src={toLocalURL(result.left.path)} alt="left" className="h-full w-full object-contain" />
-          </div>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={position}
-          onChange={(event) => setPosition(Number(event.target.value))}
-          className="absolute inset-x-6 bottom-4 accent-[var(--theme-accent)]"
-          aria-label="图片对比滑块"
-        />
-      </div>
+      <ImageCompareSlider leftPath={result.left.path} rightPath={result.right.path} leftLabel="文件 A" rightLabel="文件 B" />
     </AppPanel>
   )
 }

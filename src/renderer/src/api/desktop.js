@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { setTheme } from '@tauri-apps/api/app'
-import { open } from '@tauri-apps/plugin-dialog'
+import { open, save } from '@tauri-apps/plugin-dialog'
 
 function subscribe(channel, cb) {
   let active = true
@@ -41,10 +41,26 @@ export async function openDirectories() {
   return Array.isArray(selected) ? selected : [selected]
 }
 
+export async function chooseSettingsImportFile() {
+  if (import.meta.env.VITE_TINYPRESS_E2E === '1' && window.__TINYPRESS_E2E_PATHS__?.settingsImport) {
+    return window.__TINYPRESS_E2E_PATHS__.settingsImport
+  }
+  return open({ multiple: false, directory: false, filters: [{ name: 'TinyPress Settings', extensions: ['json'] }] })
+}
+
+export async function chooseSettingsExportFile() {
+  if (import.meta.env.VITE_TINYPRESS_E2E === '1' && window.__TINYPRESS_E2E_PATHS__?.settingsExport) {
+    return window.__TINYPRESS_E2E_PATHS__.settingsExport
+  }
+  return save({ defaultPath: 'tinypress-settings.json', filters: [{ name: 'TinyPress Settings', extensions: ['json'] }] })
+}
+
 export const openExternal = (url) => invoke('open_external', { url })
 export const getAppVersion = () => invoke('get_app_version')
 export const getAppSettings = () => invoke('get_app_settings')
 export const updateAppSettings = (settings) => invoke('update_app_settings', { settings })
+export const exportAppSettings = (targetPath) => invoke('export_app_settings', { targetPath })
+export const importAppSettings = (sourcePath) => invoke('import_app_settings', { sourcePath })
 export const getRuntimeHealth = () => invoke('get_runtime_health')
 export const updateNativeTheme = (theme) => setTheme(theme)
 export const syncWindowTheme = (mode) => invoke('sync_window_theme', { mode })

@@ -594,34 +594,15 @@ main {
   -webkit-text-fill-color: #78716c !important;
 }
 
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(120, 113, 108, 0.28);
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background-clip: content-box;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-:root[data-night='dark'] ::-webkit-scrollbar-thumb {
-  background: rgba(214, 211, 209, 0.34);
-  border-color: transparent;
-}
-
-:root[data-night='dark'] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(52, 211, 153, 0.52);
-  border-color: transparent;
-}
-
-:root[data-night='dark'] ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.04);
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Final visual reset: cards are structural only, not filled surfaces. */

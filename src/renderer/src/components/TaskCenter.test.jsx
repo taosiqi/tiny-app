@@ -1,91 +1,72 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskCenter from './TaskCenter'
 import { ToastProvider } from '../toast/ToastContext'
 import { TASK_RECORDS_KEY } from '../tasks/taskHistory'
-import { compressImage, openDirectories } from '../api/desktop'
-
-const listeners = new Map()
 
 vi.mock('./ComparePanel', () => ({ default: () => <div>ComparePanel</div> }))
-vi.mock('../settings/useSettings', () => ({
-  useSettings: () => ({
-    settings: {
-      compression: { image: { recursiveScan: true }, audio: { recursiveScan: true, mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 }, ogg: { bitrate: '96k', sampleRate: 44100, channels: 2 }, wav: { sampleRate: 22050, channels: 2 } } }
-    }
-  })
-}))
-vi.mock('../api/desktop', () => ({
-  getTinypngKeys: vi.fn(() => Promise.resolve([{ value: 'key-a', compressionCount: 10 }])),
-  updateTinypngKeys: vi.fn((keys) => Promise.resolve(keys)),
-  checkTinypngKey: vi.fn(),
-  openFiles: vi.fn(() => Promise.resolve(['/tmp/photo.png'])),
-  openDirectories: vi.fn(() => Promise.resolve(['/tmp/assets', '/tmp/assets'])),
-  stopAudioCompression: vi.fn(),
-  stopImageCompression: vi.fn(),
-  onImageTotal: vi.fn((cb) => { listeners.set('imageTotal', cb); return () => {} }),
-  onImageProgress: vi.fn((cb) => { listeners.set('imageProgress', cb); return () => {} }),
-  onImageKeyCount: vi.fn((cb) => { listeners.set('imageKeyCount', cb); return () => {} }),
-  onImageDone: vi.fn((cb) => { listeners.set('imageDone', cb); return () => {} }),
-  onImagePaused: vi.fn((cb) => { listeners.set('imagePaused', cb); return () => {} }),
-  onAudioTotal: vi.fn((cb) => { listeners.set('audioTotal', cb); return () => {} }),
-  onAudioProgress: vi.fn((cb) => { listeners.set('audioProgress', cb); return () => {} }),
-  onAudioDone: vi.fn((cb) => { listeners.set('audioDone', cb); return () => {} }),
-  onAudioPaused: vi.fn((cb) => { listeners.set('audioPaused', cb); return () => {} }),
-  compressAudio: vi.fn(),
-  compressImage: vi.fn(() => {
-    listeners.get('imageProgress')?.({ status: 'success', file: '/tmp/photo.png', backupPath: '/tmp/_tiny_backup/photo.png' })
-    listeners.get('imageDone')?.({ total: 1, processed: 1, skipped: 0, failed: 0, savedBytes: '1 KB' })
-    return Promise.resolve()
-  })
-}))
 
-function renderPage() {
-  return render(<MemoryRouter><ToastProvider><TaskCenter /></ToastProvider></MemoryRouter>)
+function Destination() {
+  const location = useLocation()
+  return <div>{location.pathname}:{location.state?.retryPaths?.join(',')}</div>
+}
+
+function renderPage(initialEntries = ['/tasks']) {
+  return render(<MemoryRouter initialEntries={initialEntries}>
+    <ToastProvider>
+      <TaskCenter />
+      <Destination />
+    </ToastProvider>
+  </MemoryRouter>)
+}
+
+function record(logs = []) {
+  return {
+    id: 'record-1',
+    source: 'task-center',
+    status: 'error',
+    inputCount: logs.length,
+    stats: { total: logs.length, processed: 0, skipped: 0, failed: logs.length },
+    logs
+  }
 }
 
 describe('TaskCenter', () => {
-  beforeEach(() => { localStorage.clear(); listeners.clear(); vi.clearAllMocks() })
+  beforeEach(() => {
+    localStorage.clear()
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() })
+  })
 
-  it('renders records without health or footer shortcuts', () => {
+  it('renders a full-width records center without unified processing controls', () => {
     renderPage()
     expect(screen.getByRole('button', { name: '任务记录' })).toBeInTheDocument()
-    expect(screen.queryByText('健康面板')).not.toBeInTheDocument()
-    expect(screen.queryByText('管理 Key')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '结果对比' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '+ 添加文件' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开始统一处理' })).not.toBeInTheDocument()
   })
 
-  it('runs an image task and writes the v4 task record', async () => {
+  it('exports the selected record and reports success', () => {
+    localStorage.setItem(TASK_RECORDS_KEY, JSON.stringify([record()]))
     renderPage()
-    fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
-    await screen.findByText('/tmp/photo.png')
-    fireEvent.click(screen.getByRole('button', { name: '开始统一处理' }))
-    await waitFor(() => expect(compressImage).toHaveBeenCalled())
-    const records = JSON.parse(localStorage.getItem(TASK_RECORDS_KEY))
-    expect(records[0].source).toBe('task-center')
-    expect(records[0].compressionSnapshot.image.recursiveScan).toBe(true)
-    expect(records[0].status).toBe('success')
+    fireEvent.click(screen.getByRole('button', { name: '导出 JSON' }))
+    expect(screen.getByText(/已导出 tinypress-record-/)).toBeInTheDocument()
   })
 
-  it('merges selected directories without duplicates', async () => {
+  it('routes failed image items back to the image tool for confirmation', () => {
+    localStorage.setItem(TASK_RECORDS_KEY, JSON.stringify([record([{ status: 'error', file: '/tmp/photo.png' }])]))
     renderPage()
-    fireEvent.click(screen.getByRole('button', { name: '+ 添加目录' }))
-    await screen.findByText('/tmp/assets')
-    expect(openDirectories).toHaveBeenCalled()
-    expect(screen.getAllByText('/tmp/assets')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '重试图片 (1)' }))
+    expect(screen.getByText('/png:/tmp/photo.png')).toBeInTheDocument()
   })
 
-  it('persists total and processed counts while a task is running', async () => {
-    compressImage.mockImplementationOnce(() => new Promise(() => {}))
+  it('splits mixed failures into image and audio retry actions', () => {
+    localStorage.setItem(TASK_RECORDS_KEY, JSON.stringify([record([
+      { status: 'error', file: '/tmp/photo.jpg' },
+      { status: 'error', file: '/tmp/audio.ogg' }
+    ])]))
     renderPage()
-    fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
-    await screen.findByText('/tmp/photo.png')
-    fireEvent.click(screen.getByRole('button', { name: '开始统一处理' }))
-    await waitFor(() => expect(compressImage).toHaveBeenCalled())
-    listeners.get('imageTotal')?.(4)
-    listeners.get('imageProgress')?.({ status: 'success', file: '/tmp/photo.png' })
-    const records = JSON.parse(localStorage.getItem(TASK_RECORDS_KEY))
-    expect(records[0].status).toBe('running')
-    expect(records[0].stats).toEqual({ total: 4, processed: 1, skipped: 0, failed: 0 })
+    expect(screen.getByRole('button', { name: '重试图片 (1)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试音频 (1)' })).toBeInTheDocument()
   })
 })

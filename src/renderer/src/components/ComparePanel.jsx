@@ -15,6 +15,7 @@ import {
   restoreFile
 } from '../api/desktop'
 import { useToast } from '../toast/useToast'
+import ImageCompareSlider from './ImageCompareSlider'
 
 function toLocalURL(filePath) {
   return filePath ? convertFileSrc(filePath) : ''
@@ -57,53 +58,6 @@ function SizeBar({ inputBytes, outputBytes }) {
 SizeBar.propTypes = {
   inputBytes: PropTypes.number,
   outputBytes: PropTypes.number
-}
-
-function ImageSlider({ original, current, height = 'h-40' }) {
-  const [position, setPosition] = useState(50)
-
-  return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border border-stone-200 bg-white ${height}`}
-    >
-      <div className="absolute left-3 top-3 z-20 rounded-full bg-stone-950/70 px-2.5 py-1 text-[10px] font-semibold text-white">
-        原始备份
-      </div>
-      <div className="absolute right-3 top-3 z-20 rounded-full bg-emerald-700/80 px-2.5 py-1 text-[10px] font-semibold text-white">
-        压缩后
-      </div>
-      <LocalImage filePath={current} className="h-full w-full object-contain" alt="compressed" />
-      <div
-        className="absolute inset-y-0 left-0 overflow-hidden bg-white"
-        style={{ width: `${position}%` }}
-      >
-        <div className="h-full" style={{ width: `${10000 / Math.max(position, 1)}%` }}>
-          <LocalImage filePath={original} className="h-full w-full object-contain" alt="original" />
-        </div>
-      </div>
-      <div
-        className="pointer-events-none absolute inset-y-0 z-10 w-0.5 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
-        style={{ left: `${position}%` }}
-      >
-        <div className="absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-[var(--theme-accent)] shadow-lg" />
-      </div>
-      <input
-        type="range"
-        min="0"
-        max="100"
-        value={position}
-        onChange={(event) => setPosition(Number(event.target.value))}
-        className="absolute inset-x-4 bottom-3 accent-[var(--theme-accent)]"
-        aria-label="图片对比滑块"
-      />
-    </div>
-  )
-}
-
-ImageSlider.propTypes = {
-  original: PropTypes.string,
-  current: PropTypes.string,
-  height: PropTypes.string
 }
 
 function ImageCompareModal({ item, onClose }) {
@@ -153,7 +107,7 @@ function ImageCompareModal({ item, onClose }) {
 
         {mode === 'slider' ? (
           <div className="p-5">
-            <ImageSlider original={item.backupPath} current={item.file} height="h-[68vh]" />
+            <ImageCompareSlider leftPath={item.backupPath} rightPath={item.file} height="h-[68vh]" />
           </div>
         ) : (
           <div className="grid min-h-0 flex-1 grid-cols-2 overflow-hidden rounded-b-2xl">
@@ -247,7 +201,7 @@ function ImageCompareView({ item, fullscreen = false }) {
         </button>
       </div>
       {mode === 'slider' ? (
-        <ImageSlider original={item.backupPath} current={item.file} height={imageHeight} />
+        <ImageCompareSlider leftPath={item.backupPath} rightPath={item.file} height={imageHeight} />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {[

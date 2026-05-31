@@ -8,12 +8,12 @@
  *  - 实时展示每张图片的处理状态与压缩统计
  *  - API Key 列表持久化至 Rust 端设置文件
  */
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import ComparePanel from './ComparePanel'
 import CompareFullscreen from './CompareFullscreen'
 import PathPickerPanel from './PathPickerPanel'
-import { TinypngKeyManagerView } from './TinypngKeyManager'
-import { AppButton, AppPanel } from './ui/base'
+import { AppButton, AppPanel, StatusPill } from './ui/base'
 import { PageHeader, PageLayout } from './ui/page'
 import { useToast } from '../toast/useToast'
 import {
@@ -48,6 +48,8 @@ const STATUS_CLASS = {
  */
 export default function TinyPNG() {
   const toast = useToast()
+  const location = useLocation()
+  const navigate = useNavigate()
   const { settings } = useSettings()
   const compression = cloneCompression(settings.compression)
   const keyController = useTinypngKeys({ autoValidate: true, toast })
@@ -64,6 +66,17 @@ export default function TinyPNG() {
   const [logFilter, setLogFilter] = useState('all')
   const taskRecordRef = useRef(null)
   const logRef = useRef(null)
+  const retryTokenRef = useRef(null)
+
+  useEffect(() => {
+    const retryToken = location.state?.retryToken
+    const retryPaths = location.state?.retryPaths
+    if (!retryToken || retryTokenRef.current === retryToken || !Array.isArray(retryPaths)) return
+    retryTokenRef.current = retryToken
+    setPaths((items) => [...new Set([...items, ...retryPaths])])
+    toast.info(`已加入 ${retryPaths.length} 个待重试图片`)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate, toast])
 
   /** 将日志容器滚动到底部（延迟 50ms 等待 DOM 更新） */
   const scrollBottom = useCallback(() => {
@@ -202,6 +215,10 @@ export default function TinyPNG() {
   const errorLogs = logs.filter((item) => item.status === 'error')
   const successCount = logs.filter((item) => item.status === 'success').length
   const skippedCount = logs.filter((item) => item.status === 'skipped').length
+  const checkedKeys = keys.filter((key) => key.status === 'valid')
+  const usableKeys = checkedKeys.filter((key) => (key.compressionCount ?? 0) < KEY_LIMIT)
+  const remainingQuota = usableKeys.reduce((sum, key) => sum + Math.max(0, KEY_LIMIT - (key.compressionCount ?? 0)), 0)
+  const checkingKeys = keys.filter((key) => key.status === 'checking').length
 
   return (
     <PageLayout>
@@ -210,9 +227,17 @@ export default function TinyPNG() {
       )}
       <PageHeader title="图片压缩" description="使用 TinyPNG 自动优化 PNG、JPG 和 JPEG 文件。" />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-        {/* API Keys */}
-        <AppPanel className="shrink-0 p-5">
-          <TinypngKeyManagerView controller={keyController} disabled={running} />
+        <AppPanel className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
+            <span className="font-bold text-stone-800">TinyPNG Key</span>
+            <StatusPill tone={usableKeys.length > 0 ? 'success' : checkingKeys > 0 ? 'info' : 'warning'}>
+              {checkingKeys > 0 ? `正在校验 ${checkingKeys} 个` : `可用 ${usableKeys.length} 个`}
+            </StatusPill>
+            <span>剩余额度合计 {remainingQuota} 次</span>
+          </div>
+          <AppButton type="button" variant="ghost" onClick={() => navigate('/settings?tab=image')} className="px-3 py-1.5 text-xs">
+            管理 Key
+          </AppButton>
         </AppPanel>
 
         {/* Paths */}
@@ -222,6 +247,7 @@ export default function TinyPNG() {
           filters={[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]}
           emptyText="点击上方按钮添加图片文件或目录"
           onChange={setPaths}
+          compact
           footer={<p className="mt-3 text-xs text-stone-500">
             递归子目录：{compression.image.recursiveScan ? '开启' : '关闭'}，可在首选项中修改。
           </p>}

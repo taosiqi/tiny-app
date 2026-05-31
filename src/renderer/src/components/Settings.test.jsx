@@ -1,10 +1,17 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings'
 import { ToastProvider } from '../toast/ToastContext'
+import {
+  chooseSettingsExportFile,
+  chooseSettingsImportFile,
+  exportAppSettings,
+  importAppSettings
+} from '../api/desktop'
 
 const saveSettings = vi.fn()
+const replaceSettings = vi.fn()
 
 vi.mock('../settings/useSettings', () => ({
   useSettings: () => ({
@@ -15,7 +22,8 @@ vi.mock('../settings/useSettings', () => ({
       compression: { image: { recursiveScan: true }, audio: { recursiveScan: true, mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 }, ogg: { bitrate: '96k', sampleRate: 44100, channels: 2 }, wav: { sampleRate: 22050, channels: 2 } } }
     },
     ready: true,
-    saveSettings
+    saveSettings,
+    replaceSettings
   })
 }))
 
@@ -33,7 +41,11 @@ vi.mock('../api/desktop', () => ({
   getTinypngKeys: vi.fn(() => Promise.resolve([])),
   updateTinypngKeys: vi.fn((keys) => Promise.resolve(keys)),
   checkTinypngKey: vi.fn(() => Promise.resolve({ valid: true, compressionCount: 12, error: null })),
-  openExternal: vi.fn()
+  openExternal: vi.fn(),
+  chooseSettingsExportFile: vi.fn(),
+  chooseSettingsImportFile: vi.fn(),
+  exportAppSettings: vi.fn(),
+  importAppSettings: vi.fn()
 }))
 
 function renderSettings(initialEntries = ['/settings']) {
@@ -47,6 +59,11 @@ function renderSettings(initialEntries = ['/settings']) {
 describe('Settings', () => {
   beforeEach(() => {
     saveSettings.mockClear()
+    replaceSettings.mockClear()
+    chooseSettingsExportFile.mockReset()
+    chooseSettingsImportFile.mockReset()
+    exportAppSettings.mockReset()
+    importAppSettings.mockReset()
   })
 
   it('saves appearance and close behavior choices', () => {
@@ -86,6 +103,7 @@ describe('Settings', () => {
 
   it('fills a quick profile draft and saves only after confirmation', () => {
     renderSettings()
+    fireEvent.click(screen.getByRole('button', { name: '压缩设置' }))
     fireEvent.click(screen.getByRole('button', { name: '省空间' }))
     expect(saveSettings).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '保存压缩设置' }))
@@ -101,6 +119,7 @@ describe('Settings', () => {
   it('blocks route changes while compression settings are dirty', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const { router } = renderSettings()
+    fireEvent.click(screen.getByRole('button', { name: '压缩设置' }))
     fireEvent.click(screen.getByRole('button', { name: '省空间' }))
     await act(() => router.navigate('/other'))
     await waitFor(() => expect(confirm).toHaveBeenCalled())
@@ -110,5 +129,41 @@ describe('Settings', () => {
     await act(() => router.navigate('/other'))
     expect(await screen.findByText('其他页面')).toBeInTheDocument()
     confirm.mockRestore()
+  })
+
+  it('confirms before deleting a TinyPNG key', async () => {
+    renderSettings(['/settings?tab=image'])
+    await screen.findByPlaceholderText('your-api-key')
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(screen.getByRole('dialog', { name: '删除 TinyPNG Key' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '删除 TinyPNG Key' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '删除 TinyPNG Key' })).getByRole('button', { name: '删除' }))
+    expect(screen.getByText('TinyPNG Key 已删除')).toBeInTheDocument()
+  })
+
+  it('confirms sensitive configuration export and imports a complete file', async () => {
+    const imported = {
+      nightMode: 'dark',
+      closeBehavior: 'quit',
+      backupDirName: 'restored',
+      tinypngKeys: [{ value: 'restored-key', compressionCount: 8 }],
+      compression: { image: { recursiveScan: false }, audio: { recursiveScan: false, mp3: { bitrate: '48k', sampleRate: 32000, channels: 1 }, ogg: { bitrate: '64k', sampleRate: 32000, channels: 1 }, wav: { sampleRate: 16000, channels: 1 } } }
+    }
+    chooseSettingsExportFile.mockResolvedValue('/tmp/export.json')
+    chooseSettingsImportFile.mockResolvedValue('/tmp/import.json')
+    importAppSettings.mockResolvedValue(imported)
+    renderSettings(['/settings?tab=backup'])
+
+    fireEvent.click(screen.getByRole('button', { name: '导出配置' }))
+    expect(within(screen.getByRole('dialog', { name: '导出完整配置' })).getByText(/包含明文 TinyPNG Key/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '继续导出' }))
+    await waitFor(() => expect(exportAppSettings).toHaveBeenCalledWith('/tmp/export.json'))
+
+    fireEvent.click(screen.getByRole('button', { name: '导入并覆盖' }))
+    fireEvent.click(screen.getByRole('button', { name: '继续导入' }))
+    await waitFor(() => expect(importAppSettings).toHaveBeenCalledWith('/tmp/import.json'))
+    expect(replaceSettings).toHaveBeenCalledWith(imported)
   })
 })

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import PropTypes from 'prop-types'
 import { openDirectories, openFiles } from '../api/desktop'
 import { AppButton, AppCard, AppPanel, EmptyState } from './ui/base'
@@ -8,8 +9,10 @@ export default function PathPickerPanel({
   filters = [],
   emptyText,
   onChange,
-  footer
+  footer,
+  compact = false
 }) {
+  const [expanded, setExpanded] = useState(false)
   const mergePaths = (items) => {
     if (items.length > 0) onChange([...new Set([...paths, ...items])])
   }
@@ -42,9 +45,18 @@ export default function PathPickerPanel({
 
       {paths.length === 0 ? (
         <EmptyState className="py-7">{emptyText}</EmptyState>
+      ) : compact && !expanded ? (
+        <AppCard className="flex items-center justify-between gap-3 px-3 py-2">
+          <span className="text-xs text-stone-600">已添加 {paths.length} 个文件或目录</span>
+          <AppButton type="button" variant="ghost" onClick={() => setExpanded(true)} className="px-2 py-1 text-xs">
+            展开列表
+          </AppButton>
+        </AppCard>
       ) : (
-        <ul className="max-h-40 space-y-1 overflow-y-auto">
-          {paths.map((path) => (
+        <>
+          {compact && <div className="mb-2 flex justify-end"><AppButton type="button" variant="ghost" onClick={() => setExpanded(false)} className="px-2 py-1 text-xs">收起列表</AppButton></div>}
+          <ul className="max-h-32 space-y-1 overflow-y-auto">
+            {paths.map((path) => (
             <AppCard key={path} as="li" className="flex items-center gap-2 px-3 py-2">
               <span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>
                 {path}
@@ -59,8 +71,9 @@ export default function PathPickerPanel({
                 删除
               </AppButton>
             </AppCard>
-          ))}
-        </ul>
+            ))}
+          </ul>
+        </>
       )}
       {footer}
     </AppPanel>
@@ -73,5 +86,6 @@ PathPickerPanel.propTypes = {
   filters: PropTypes.array,
   emptyText: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
-  footer: PropTypes.node
+  footer: PropTypes.node,
+  compact: PropTypes.bool
 }

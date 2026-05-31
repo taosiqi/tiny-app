@@ -16,12 +16,19 @@ import {
 } from '../settings/compressionSettings'
 import { useToast } from '../toast/useToast'
 import { PageHeader, PageLayout } from './ui/page'
+import AppConfirmDialog from './ui/AppConfirmDialog'
+import {
+  chooseSettingsExportFile,
+  chooseSettingsImportFile,
+  exportAppSettings,
+  importAppSettings
+} from '../api/desktop'
 
 const TABS = [
+  { id: 'appearance', label: '外观' },
   { id: 'compression', label: '压缩设置' },
   { id: 'image', label: '图片压缩' },
-  { id: 'backup', label: '备份与还原' },
-  { id: 'appearance', label: '外观' }
+  { id: 'backup', label: '备份与还原' }
 ]
 
 function isValidBackupDirName(name) {
@@ -30,7 +37,7 @@ function isValidBackupDirName(name) {
 }
 
 export default function Settings() {
-  const { settings, ready, saveSettings } = useSettings()
+  const { settings, ready, saveSettings, replaceSettings } = useSettings()
   if (!ready) {
     return (
       <PageLayout className="overflow-y-auto">
@@ -39,19 +46,20 @@ export default function Settings() {
       </PageLayout>
     )
   }
-  return <ReadySettings settings={settings} saveSettings={saveSettings} />
+  return <ReadySettings settings={settings} saveSettings={saveSettings} replaceSettings={replaceSettings} />
 }
 
-function ReadySettings({ settings, saveSettings }) {
+function ReadySettings({ settings, saveSettings, replaceSettings }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const toast = useToast()
-  const activeTab = TABS.some((tab) => tab.id === searchParams.get('tab')) ? searchParams.get('tab') : 'compression'
+  const activeTab = TABS.some((tab) => tab.id === searchParams.get('tab')) ? searchParams.get('tab') : 'appearance'
   const [draft, setDraft] = useState(() => cloneCompression(settings.compression))
   const [dirty, setDirty] = useState(false)
   const [backupDirNameDraft, setBackupDirNameDraft] = useState(null)
   const currentBackupDirName = settings.backupDirName ?? '_tiny_backup'
   const backupDirName = backupDirNameDraft ?? currentBackupDirName
   const blocker = useBlocker(dirty)
+  const [configAction, setConfigAction] = useState(null)
 
   useEffect(() => {
     const guard = (event) => {
@@ -81,7 +89,12 @@ function ReadySettings({ settings, saveSettings }) {
   }
 
   const changeTab = (tab) => {
-    setSearchParams(tab === 'compression' ? {} : { tab })
+    if (dirty && !window.confirm('压缩设置尚未保存，确认切换页签并放弃修改吗？')) return
+    if (dirty) {
+      setDraft(cloneCompression(settings.compression))
+      setDirty(false)
+    }
+    setSearchParams(tab === 'appearance' ? {} : { tab })
   }
 
   const patchDraft = (path, value) => {
@@ -105,9 +118,45 @@ function ReadySettings({ settings, saveSettings }) {
     if (await saveWithToast({ backupDirName: nextName }, '备份目录名已保存')) setBackupDirNameDraft(null)
   }
 
+  const runConfigAction = async () => {
+    const action = configAction
+    setConfigAction(null)
+    if (!action) return
+    if (dirty && !window.confirm('压缩设置尚未保存，确认放弃修改吗？')) return
+    try {
+      if (action === 'export') {
+        const targetPath = await chooseSettingsExportFile()
+        if (!targetPath) return
+        await exportAppSettings(targetPath)
+        toast.success('配置文件已导出')
+        return
+      }
+      const sourcePath = await chooseSettingsImportFile()
+      if (!sourcePath) return
+      const imported = await importAppSettings(sourcePath)
+      replaceSettings(imported)
+      setDraft(cloneCompression(imported.compression))
+      setDirty(false)
+      setBackupDirNameDraft(null)
+      window.dispatchEvent(new CustomEvent('tinypress:keys-updated', { detail: { source: 'settings-import', keys: imported.tinypngKeys ?? [] } }))
+      toast.success('配置文件已导入')
+    } catch (error) {
+      toast.error(`${action === 'export' ? '导出' : '导入'}失败：${error?.message ?? error}`)
+    }
+  }
+
   return (
     <PageLayout className="overflow-y-auto">
       <div className="space-y-5">
+        <AppConfirmDialog
+          open={configAction !== null}
+          title={configAction === 'export' ? '导出完整配置' : '导入并覆盖配置'}
+          description={configAction === 'export' ? '配置文件将包含明文 TinyPNG Key。请妥善保管，不要公开分享。' : '导入会覆盖当前外观、压缩、备份和 TinyPNG Key 设置。配置文件包含明文敏感 Key，确认继续？'}
+          confirmLabel={configAction === 'export' ? '继续导出' : '继续导入'}
+          tone={configAction === 'export' ? 'primary' : 'danger'}
+          onCancel={() => setConfigAction(null)}
+          onConfirm={runConfigAction}
+        />
         <PageHeader title="首选项" description="集中管理压缩参数、Key、备份和界面外观。" />
         <AppPanel className="p-2"><AppTabs items={TABS} value={activeTab} onChange={changeTab} className="flex-wrap" /></AppPanel>
 
@@ -125,10 +174,9 @@ function ReadySettings({ settings, saveSettings }) {
               </div>
             </AppPanel>
             <AppPanel className="p-6">
-              <h4 className="text-sm font-black text-stone-900">目录扫描</h4>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <Check label="图片递归扫描子目录" checked={draft.image.recursiveScan} onChange={(value) => patchDraft(['image', 'recursiveScan'], value)} />
-                <Check label="音频递归扫描子目录" checked={draft.audio.recursiveScan} onChange={(value) => patchDraft(['audio', 'recursiveScan'], value)} />
+              <h4 className="text-sm font-black text-stone-900">音频目录扫描</h4>
+              <div className="mt-4">
+                <Check label="递归扫描音频子目录" checked={draft.audio.recursiveScan} onChange={(value) => patchDraft(['audio', 'recursiveScan'], value)} />
               </div>
             </AppPanel>
             <AudioSettingsCard format="mp3" label="MP3" draft={draft} patchDraft={patchDraft} bitrates={MP3_BITRATES} />
@@ -140,13 +188,31 @@ function ReadySettings({ settings, saveSettings }) {
             </div>
           </div>
         )}
-        {activeTab === 'image' && <AppPanel className="p-6"><TinypngKeyManager title="TinyPNG Key" /></AppPanel>}
-        {activeTab === 'backup' && (
+        {activeTab === 'image' && <div className="space-y-4">
           <AppPanel className="p-6">
+            <h3 className="text-xl font-black text-stone-950">图片目录扫描</h3>
+            <div className="mt-4"><Check label="递归扫描图片子目录" checked={draft.image.recursiveScan} onChange={(value) => patchDraft(['image', 'recursiveScan'], value)} /></div>
+            <div className="mt-4 flex justify-end gap-2">
+              <AppButton type="button" variant="secondary" disabled={!dirty} onClick={() => { setDraft(cloneCompression(settings.compression)); setDirty(false) }} className="px-4 py-2 text-sm">恢复已保存值</AppButton>
+              <AppButton type="button" variant="primary" disabled={!dirty} onClick={saveCompression} className="px-4 py-2 text-sm">保存图片设置</AppButton>
+            </div>
+          </AppPanel>
+          <AppPanel className="p-6"><TinypngKeyManager title="TinyPNG Key" /></AppPanel>
+        </div>}
+        {activeTab === 'backup' && (
+          <div className="space-y-4"><AppPanel className="p-6">
             <h3 className="text-xl font-black text-stone-950">备份目录</h3>
             <p className="mt-1 text-sm text-stone-500">压缩前的原文件会备份到原文件同级的这个目录中。</p>
             <div className="mt-5 flex gap-3"><AppInput value={backupDirName} onChange={(event) => setBackupDirNameDraft(event.target.value)} aria-label="备份目录名" className="flex-1" /><AppButton variant="primary" onClick={saveBackupDirName} disabled={backupDirName.trim() === currentBackupDirName} className="px-4">保存</AppButton></div>
           </AppPanel>
+          <AppPanel className="p-6">
+            <h3 className="text-xl font-black text-stone-950">配置文件</h3>
+            <p className="mt-1 text-sm text-stone-500">导出或恢复完整首选项。配置文件包含明文 TinyPNG Key。</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <AppButton type="button" variant="secondary" onClick={() => setConfigAction('export')} className="px-4 py-2 text-sm">导出配置</AppButton>
+              <AppButton type="button" variant="danger" onClick={() => setConfigAction('import')} className="px-4 py-2 text-sm">导入并覆盖</AppButton>
+            </div>
+          </AppPanel></div>
         )}
         {activeTab === 'appearance' && <div className="space-y-5">
           <PreferenceCards title="夜间模式" options={NIGHT_MODE_OPTIONS} value={settings.nightMode} onChange={(id, name) => saveWithToast({ nightMode: id }, `已切换为${name}`)} />
@@ -173,4 +239,4 @@ AudioSettingsCard.propTypes = { format: PropTypes.string.isRequired, label: Prop
 Select.propTypes = { label: PropTypes.string.isRequired, value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired, options: PropTypes.array.isRequired, onChange: PropTypes.func.isRequired }
 Check.propTypes = { label: PropTypes.string.isRequired, checked: PropTypes.bool.isRequired, onChange: PropTypes.func.isRequired }
 PreferenceCards.propTypes = { title: PropTypes.string.isRequired, options: PropTypes.array.isRequired, value: PropTypes.string, disabled: PropTypes.bool, onChange: PropTypes.func.isRequired }
-ReadySettings.propTypes = { settings: PropTypes.object.isRequired, saveSettings: PropTypes.func.isRequired }
+ReadySettings.propTypes = { settings: PropTypes.object.isRequired, saveSettings: PropTypes.func.isRequired, replaceSettings: PropTypes.func.isRequired }

@@ -27,10 +27,10 @@ test('image flow validates stored key, compresses, compares, and deletes backup'
 }) => {
   await page.getByRole('link', { name: /图片压缩/ }).click()
   await expect(page.getByText('自动校验完成：1/1 个 Key 可用')).toBeVisible()
-  await expect(page.getByText('剩余 488')).toBeVisible()
+  await expect(page.getByText('剩余额度合计 488 次')).toBeVisible()
 
   await page.getByRole('button', { name: '+ 添加文件' }).click()
-  await expect(page.getByText('/tmp/photo.png')).toBeVisible()
+  await expect(page.getByText('已添加 1 个文件或目录')).toBeVisible()
 
   await page.getByRole('button', { name: '开始压缩' }).click()
   await expect(page.getByText('图片压缩完成：成功 1，失败 0，跳过 0')).toBeVisible()
@@ -56,7 +56,7 @@ test('settings flow saves custom backup directory', async ({ page }) => {
 
 test('appearance flow switches to readable dark mode', async ({ page }) => {
   await page.getByRole('link', { name: /首选项/ }).click()
-  await page.getByRole('button', { name: '外观' }).click()
+  await page.getByRole('button', { name: '外观', exact: true }).click()
   await page.getByRole('button', { name: /^夜间/ }).click()
   await expect(page.locator('html')).toHaveAttribute('data-night', 'dark')
   await expect(page.getByRole('heading', { name: '夜间模式' })).toBeVisible()

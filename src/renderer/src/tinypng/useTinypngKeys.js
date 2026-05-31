@@ -91,7 +91,11 @@ export function useTinypngKeys({ autoValidate = false, toast = null } = {}) {
                 prev.map((key, index) => {
                   const checked = results.find((item) => item.key.index === index)
                   if (!checked) return key
-                  const { result } = checked
+                  const result = checked.result ?? {
+                    valid: false,
+                    compressionCount: null,
+                    error: 'Key 校验未返回结果'
+                  }
                   return {
                     ...key,
                     status: result.valid ? 'valid' : 'invalid',
@@ -100,7 +104,7 @@ export function useTinypngKeys({ autoValidate = false, toast = null } = {}) {
                   }
                 })
               )
-              const validCount = results.filter((item) => item.result.valid).length
+              const validCount = results.filter((item) => item.result?.valid).length
               if (validCount > 0)
                 toast?.success(`自动校验完成：${validCount}/${snapshot.length} 个 Key 可用`)
               else toast?.error('自动校验完成：没有可用 Key')
