@@ -16,6 +16,27 @@ async function request(path, body) {
   return response.json()
 }
 
+async function waitForDriver() {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    try {
+      await fetch(`${endpoint}/status`)
+      return
+    } catch {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 250))
+    }
+  }
+  throw new Error(`Timed out waiting for WebDriver at ${endpoint}`)
+}
+
+const waitFor = async (predicate, label) => {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if ((await execute(`return (${predicate})`)).value) return
+    await new Promise((resolveWait) => setTimeout(resolveWait, 250))
+  }
+  throw new Error(`Timed out waiting for ${label}`)
+}
+
+await waitForDriver()
 const session = await request('/session', {
   capabilities: {
     alwaysMatch: {
@@ -25,13 +46,6 @@ const session = await request('/session', {
 })
 const sessionId = session.value.sessionId ?? session.sessionId
 const execute = (script, args = []) => request(`/session/${sessionId}/execute/sync`, { script, args })
-const waitFor = async (predicate, label) => {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if ((await execute(`return (${predicate})`)).value) return
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250))
-  }
-  throw new Error(`Timed out waiting for ${label}`)
-}
 
 try {
   await waitFor(`document.body.innerText.includes('TinyPress')`, 'desktop shell')
