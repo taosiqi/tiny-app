@@ -115,6 +115,28 @@ AppSelect.propTypes = {
   children: PropTypes.node
 }
 
+export function AppSelectField({ label, error, className = '', selectClassName = '', children, ...props }) {
+  return (
+    <label className={cx('app-select-field text-xs font-bold text-stone-600', className)}>
+      <span>{label}</span>
+      <span className="app-select-wrap mt-2 block">
+        <AppSelect className={cx('w-full pr-9', selectClassName)} {...props}>
+          {children}
+        </AppSelect>
+      </span>
+      {error && <span className="mt-1 block text-xs text-red-500">{error}</span>}
+    </label>
+  )
+}
+
+AppSelectField.propTypes = {
+  label: PropTypes.node.isRequired,
+  error: PropTypes.node,
+  className: PropTypes.string,
+  selectClassName: PropTypes.string,
+  children: PropTypes.node
+}
+
 export function StatusPill({ tone = 'neutral', className = '', children, ...props }) {
   return (
     <span

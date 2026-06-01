@@ -41,51 +41,6 @@ pub struct ImageCompressionSettings {
     pub recursive_scan: bool,
     #[serde(default = "default_image_engine")]
     pub engine: String,
-    #[serde(default)]
-    pub local: LocalImageSettings,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalImageSettings {
-    #[serde(default = "default_local_png")]
-    pub png: LocalPngSettings,
-    #[serde(default = "default_local_jpeg")]
-    pub jpeg: LocalJpegSettings,
-    #[serde(default = "default_local_webp")]
-    pub webp: LocalWebpSettings,
-    #[serde(default = "default_local_avif")]
-    pub avif: LocalAvifSettings,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalPngSettings {
-    pub mode: String,
-    pub min_quality: u8,
-    pub max_quality: u8,
-    pub max_colors: u16,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalJpegSettings {
-    pub quality: u8,
-    pub progressive: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalWebpSettings {
-    pub mode: String,
-    pub quality: u8,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalAvifSettings {
-    pub quality: u8,
-    pub speed: u8,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -143,32 +98,6 @@ fn default_true() -> bool {
 fn default_image_engine() -> String {
     "auto".into()
 }
-fn default_local_png() -> LocalPngSettings {
-    LocalPngSettings {
-        mode: "lossy".into(),
-        min_quality: 70,
-        max_quality: 90,
-        max_colors: 256,
-    }
-}
-fn default_local_jpeg() -> LocalJpegSettings {
-    LocalJpegSettings {
-        quality: 82,
-        progressive: true,
-    }
-}
-fn default_local_webp() -> LocalWebpSettings {
-    LocalWebpSettings {
-        mode: "lossy".into(),
-        quality: 80,
-    }
-}
-fn default_local_avif() -> LocalAvifSettings {
-    LocalAvifSettings {
-        quality: 70,
-        speed: 6,
-    }
-}
 fn default_mp3() -> LossyAudioSettings {
     LossyAudioSettings {
         bitrate: "96k".into(),
@@ -195,17 +124,6 @@ impl Default for ImageCompressionSettings {
         Self {
             recursive_scan: true,
             engine: default_image_engine(),
-            local: LocalImageSettings::default(),
-        }
-    }
-}
-impl Default for LocalImageSettings {
-    fn default() -> Self {
-        Self {
-            png: default_local_png(),
-            jpeg: default_local_jpeg(),
-            webp: default_local_webp(),
-            avif: default_local_avif(),
         }
     }
 }
@@ -290,41 +208,12 @@ fn normalize_compression(settings: CompressionSettings) -> CompressionSettings {
 }
 
 fn normalize_image(settings: ImageCompressionSettings) -> ImageCompressionSettings {
-    let min_quality = settings.local.png.min_quality.min(100);
-    let max_quality = settings.local.png.max_quality.min(100);
     ImageCompressionSettings {
         recursive_scan: settings.recursive_scan,
         engine: match settings.engine.as_str() {
             "auto" | "local" | "tinify" => settings.engine,
             _ => default_image_engine(),
         },
-        local: LocalImageSettings {
-            png: LocalPngSettings {
-                mode: normalize_loss_mode(settings.local.png.mode),
-                min_quality: min_quality.min(max_quality),
-                max_quality: max_quality.max(min_quality),
-                max_colors: settings.local.png.max_colors.clamp(2, 256),
-            },
-            jpeg: LocalJpegSettings {
-                quality: settings.local.jpeg.quality.min(100),
-                progressive: settings.local.jpeg.progressive,
-            },
-            webp: LocalWebpSettings {
-                mode: normalize_loss_mode(settings.local.webp.mode),
-                quality: settings.local.webp.quality.min(100),
-            },
-            avif: LocalAvifSettings {
-                quality: settings.local.avif.quality.min(100),
-                speed: settings.local.avif.speed.clamp(1, 10),
-            },
-        },
-    }
-}
-
-fn normalize_loss_mode(mode: String) -> String {
-    match mode.as_str() {
-        "lossy" | "lossless" => mode,
-        _ => "lossy".into(),
     }
 }
 

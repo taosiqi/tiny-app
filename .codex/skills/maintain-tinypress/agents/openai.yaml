@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain TinyPress"
+  short_description: "按 TinyPress 产品与工程规范实施、验收和回归变更"
+  default_prompt: "Use $maintain-tinypress to implement and validate this TinyPress change against the project conventions."

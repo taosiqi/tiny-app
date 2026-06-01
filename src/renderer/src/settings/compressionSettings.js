@@ -1,7 +1,7 @@
 export const COMPRESSION_PROFILES = {
   compact: {
     label: '省空间',
-    image: { recursiveScan: true, engine: 'auto', local: { png: { mode: 'lossy', minQuality: 55, maxQuality: 75, maxColors: 128 }, jpeg: { quality: 68, progressive: true }, webp: { mode: 'lossy', quality: 65 }, avif: { quality: 55, speed: 8 } } },
+    image: { recursiveScan: true, engine: 'auto' },
     audio: {
       recursiveScan: true,
       mp3: { bitrate: '48k', sampleRate: 32000, channels: 1 },
@@ -11,7 +11,7 @@ export const COMPRESSION_PROFILES = {
   },
   balanced: {
     label: '平衡',
-    image: { recursiveScan: true, engine: 'auto', local: { png: { mode: 'lossy', minQuality: 70, maxQuality: 90, maxColors: 256 }, jpeg: { quality: 82, progressive: true }, webp: { mode: 'lossy', quality: 80 }, avif: { quality: 70, speed: 6 } } },
+    image: { recursiveScan: true, engine: 'auto' },
     audio: {
       recursiveScan: true,
       mp3: { bitrate: '96k', sampleRate: 44100, channels: 2 },
@@ -21,7 +21,7 @@ export const COMPRESSION_PROFILES = {
   },
   quality: {
     label: '高质量',
-    image: { recursiveScan: true, engine: 'auto', local: { png: { mode: 'lossy', minQuality: 85, maxQuality: 100, maxColors: 256 }, jpeg: { quality: 92, progressive: true }, webp: { mode: 'lossy', quality: 90 }, avif: { quality: 85, speed: 4 } } },
+    image: { recursiveScan: true, engine: 'auto' },
     audio: {
       recursiveScan: true,
       mp3: { bitrate: '192k', sampleRate: 48000, channels: 2 },
@@ -40,18 +40,7 @@ export const CHANNEL_OPTIONS = [1, 2]
 
 export function cloneCompression(compression = DEFAULT_COMPRESSION) {
   return {
-    image: {
-      ...DEFAULT_COMPRESSION.image,
-      ...(compression.image ?? {}),
-      local: {
-        ...DEFAULT_COMPRESSION.image.local,
-        ...(compression.image?.local ?? {}),
-        png: { ...DEFAULT_COMPRESSION.image.local.png, ...(compression.image?.local?.png ?? {}) },
-        jpeg: { ...DEFAULT_COMPRESSION.image.local.jpeg, ...(compression.image?.local?.jpeg ?? {}) },
-        webp: { ...DEFAULT_COMPRESSION.image.local.webp, ...(compression.image?.local?.webp ?? {}) },
-        avif: { ...DEFAULT_COMPRESSION.image.local.avif, ...(compression.image?.local?.avif ?? {}) }
-      }
-    },
+    image: { ...DEFAULT_COMPRESSION.image, ...(compression.image ?? {}) },
     audio: {
       ...DEFAULT_COMPRESSION.audio,
       ...(compression.audio ?? {}),
@@ -64,7 +53,7 @@ export function cloneCompression(compression = DEFAULT_COMPRESSION) {
 
 export function imagePayload(paths, compression, apiKeys) {
   const image = compression.image
-  return { paths, recursive: image.recursiveScan, engine: image.engine, local: image.local, apiKeys }
+  return { paths, recursive: image.recursiveScan, engine: image.engine, apiKeys }
 }
 
 export function audioPayload(paths, compression) {

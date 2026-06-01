@@ -99,6 +99,9 @@ describe('Settings', () => {
     expect(screen.getByText('首选项')).toBeInTheDocument()
     expect(screen.getByText('TinyPNG Key')).toBeInTheDocument()
     expect(await screen.findByPlaceholderText('your-api-key')).toBeInTheDocument()
+    expect(screen.getByText('TinyPNG Key').compareDocumentPosition(screen.getByText('图片压缩引擎')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText('最低质量')).not.toBeInTheDocument()
+    expect(screen.queryByText('JPEG 质量')).not.toBeInTheDocument()
   })
 
   it('fills a quick profile draft and saves only after confirmation', () => {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import { useBlocker, useSearchParams } from 'react-router-dom'
 import TinypngKeyManager from './TinypngKeyManager'
-import { AppButton, AppCard, AppInput, AppPanel, AppSelect, AppTabs } from './ui/base'
+import { AppButton, AppCard, AppInput, AppPanel, AppSelectField, AppTabs } from './ui/base'
 import { CLOSE_BEHAVIOR_OPTIONS, NIGHT_MODE_OPTIONS } from '../settings/themeOptions'
 import { useSettings } from '../settings/useSettings'
 import {
@@ -167,7 +167,7 @@ function ReadySettings({ settings, saveSettings, replaceSettings }) {
               <p className="mt-1 text-sm text-stone-500">快捷档位只填充草稿，确认参数后统一保存。</p>
               <div className="mt-4 grid gap-2 sm:grid-cols-3">
                 {Object.entries(COMPRESSION_PROFILES).map(([id, profile]) => (
-                  <AppButton key={id} type="button" variant="secondary" onClick={() => { setDraft(cloneCompression(profile)); setDirty(true) }} className="py-2 text-sm">
+                  <AppButton key={id} type="button" variant="secondary" onClick={() => { setDraft((current) => ({ ...current, audio: cloneCompression(profile).audio })); setDirty(true) }} className="py-2 text-sm">
                     {profile.label}
                   </AppButton>
                 ))}
@@ -189,9 +189,10 @@ function ReadySettings({ settings, saveSettings, replaceSettings }) {
           </div>
         )}
         {activeTab === 'image' && <div className="space-y-4">
+          <AppPanel className="p-6"><TinypngKeyManager title="TinyPNG Key" /></AppPanel>
           <AppPanel className="p-6">
             <h3 className="text-xl font-black text-stone-950">图片压缩引擎</h3>
-            <p className="mt-1 text-sm text-stone-500">自动选择优先使用可用 Tinify Key，额度耗尽后继续使用本地压缩。</p>
+            <p className="mt-1 text-sm text-stone-500">自动选择优先使用 Tinify API；无可用 Key 时尝试本地严格无损压缩。</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
               {[
                 ['auto', '自动选择'],
@@ -204,13 +205,12 @@ function ReadySettings({ settings, saveSettings, replaceSettings }) {
               ))}
             </div>
             <div className="mt-4"><Check label="递归扫描图片子目录" checked={draft.image.recursiveScan} onChange={(value) => patchDraft(['image', 'recursiveScan'], value)} /></div>
+            <p className="mt-4 text-xs leading-5 text-stone-500">本地严格无损支持静态 PNG、APNG 和静态 WebP。JPEG、AVIF 与动画 WebP 请使用 Tinify API。</p>
             <div className="mt-4 flex justify-end gap-2">
               <AppButton type="button" variant="secondary" disabled={!dirty} onClick={() => { setDraft(cloneCompression(settings.compression)); setDirty(false) }} className="px-4 py-2 text-sm">恢复已保存值</AppButton>
               <AppButton type="button" variant="primary" disabled={!dirty} onClick={saveCompression} className="px-4 py-2 text-sm">保存图片设置</AppButton>
             </div>
           </AppPanel>
-          {draft.image.engine !== 'tinify' && <LocalImageSettingsPanel draft={draft} patchDraft={patchDraft} />}
-          {draft.image.engine !== 'local' && <AppPanel className="p-6"><TinypngKeyManager title="TinyPNG Key" /></AppPanel>}
         </div>}
         {activeTab === 'backup' && (
           <div className="space-y-4"><AppPanel className="p-6">
@@ -239,45 +239,17 @@ function ReadySettings({ settings, saveSettings, replaceSettings }) {
 function AudioSettingsCard({ format, label, draft, patchDraft, bitrates }) {
   const value = draft.audio[format]
   return <AppPanel className="p-6"><h4 className="text-sm font-black text-stone-900">{label}</h4><div className="mt-4 grid gap-4 sm:grid-cols-3">
-    {bitrates && <Select label="码率" value={value.bitrate} options={bitrates.map((item) => [item, item])} onChange={(next) => patchDraft(['audio', format, 'bitrate'], next)} />}
-    <Select label="采样率" value={value.sampleRate} options={SAMPLE_RATES.map((item) => [item, formatSampleRate(item)])} onChange={(next) => patchDraft(['audio', format, 'sampleRate'], Number(next))} />
-    <Select label="声道" value={value.channels} options={CHANNEL_OPTIONS.map((item) => [item, item === 1 ? '单声道' : '立体声'])} onChange={(next) => patchDraft(['audio', format, 'channels'], Number(next))} />
+    {bitrates && <SelectField label="码率" value={value.bitrate} options={bitrates.map((item) => [item, item])} onChange={(next) => patchDraft(['audio', format, 'bitrate'], next)} />}
+    <SelectField label="采样率" value={value.sampleRate} options={SAMPLE_RATES.map((item) => [item, formatSampleRate(item)])} onChange={(next) => patchDraft(['audio', format, 'sampleRate'], Number(next))} />
+    <SelectField label="声道" value={value.channels} options={CHANNEL_OPTIONS.map((item) => [item, item === 1 ? '单声道' : '立体声'])} onChange={(next) => patchDraft(['audio', format, 'channels'], Number(next))} />
   </div></AppPanel>
 }
-function LocalImageSettingsPanel({ draft, patchDraft }) {
-  const local = draft.image.local
-  const range = (start, end) => Array.from({ length: end - start + 1 }, (_, index) => start + index)
-  const qualities = range(0, 100).map((item) => [item, item])
-  return <div className="space-y-4">
-    <AppPanel className="p-6"><h4 className="text-sm font-black text-stone-900">PNG</h4><div className="mt-4 grid gap-4 sm:grid-cols-4">
-      <Select label="模式" value={local.png.mode} options={[['lossy', '有损量化'], ['lossless', '仅无损优化']]} onChange={(next) => patchDraft(['image', 'local', 'png', 'mode'], next)} />
-      <Select label="最低质量" value={local.png.minQuality} options={qualities} onChange={(next) => patchDraft(['image', 'local', 'png', 'minQuality'], Number(next))} />
-      <Select label="最高质量" value={local.png.maxQuality} options={qualities} onChange={(next) => patchDraft(['image', 'local', 'png', 'maxQuality'], Number(next))} />
-      <NumberInput label="最大颜色数" value={local.png.maxColors} min={2} max={256} onChange={(next) => patchDraft(['image', 'local', 'png', 'maxColors'], next)} />
-    </div></AppPanel>
-    <AppPanel className="p-6"><h4 className="text-sm font-black text-stone-900">JPEG</h4><div className="mt-4 grid gap-4 sm:grid-cols-2">
-      <Select label="JPEG 质量" value={local.jpeg.quality} options={qualities} onChange={(next) => patchDraft(['image', 'local', 'jpeg', 'quality'], Number(next))} />
-      <Check label="渐进式输出" checked={local.jpeg.progressive} onChange={(next) => patchDraft(['image', 'local', 'jpeg', 'progressive'], next)} />
-    </div></AppPanel>
-    <AppPanel className="p-6"><h4 className="text-sm font-black text-stone-900">WebP</h4><div className="mt-4 grid gap-4 sm:grid-cols-2">
-      <Select label="WebP 模式" value={local.webp.mode} options={[['lossy', '有损'], ['lossless', '无损']]} onChange={(next) => patchDraft(['image', 'local', 'webp', 'mode'], next)} />
-      <Select label="WebP 质量" value={local.webp.quality} options={qualities} onChange={(next) => patchDraft(['image', 'local', 'webp', 'quality'], Number(next))} />
-    </div></AppPanel>
-    <AppPanel className="p-6"><h4 className="text-sm font-black text-stone-900">AVIF</h4><div className="mt-4 grid gap-4 sm:grid-cols-2">
-      <Select label="AVIF 质量" value={local.avif.quality} options={qualities} onChange={(next) => patchDraft(['image', 'local', 'avif', 'quality'], Number(next))} />
-      <Select label="AVIF 编码速度" value={local.avif.speed} options={range(1, 10).map((item) => [item, item])} onChange={(next) => patchDraft(['image', 'local', 'avif', 'speed'], Number(next))} />
-    </div></AppPanel>
-  </div>
-}
-function Select({ label, value, options, onChange }) { return <label className="text-xs font-bold text-stone-600">{label}<AppSelect aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full">{options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</AppSelect></label> }
-function NumberInput({ label, value, min, max, onChange }) { return <label className="text-xs font-bold text-stone-600">{label}<AppInput aria-label={label} type="number" value={value} min={min} max={max} onChange={(event) => onChange(Number(event.target.value))} className="mt-2 w-full" /></label> }
+function SelectField({ label, value, options, onChange }) { return <AppSelectField label={label} aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</AppSelectField> }
 function Check({ label, checked, onChange }) { return <label className="flex items-center gap-2 text-xs font-bold text-stone-600"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />{label}</label> }
 function PreferenceCards({ title, options, value, disabled, onChange }) { return <AppPanel className="p-6"><h3 className="text-xl font-black text-stone-950">{title}</h3><div className={`mt-5 grid gap-3 ${options.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>{options.map((option) => <AppCard key={option.id} as="button" type="button" disabled={disabled} active={value === option.id} onClick={() => onChange(option.id, option.name)} className="p-4 text-left"><span className="block text-sm font-black">{option.name}</span><span className="mt-2 block text-xs leading-5 text-stone-500">{option.desc}</span></AppCard>)}</div></AppPanel> }
 
 AudioSettingsCard.propTypes = { format: PropTypes.string.isRequired, label: PropTypes.string.isRequired, draft: PropTypes.object.isRequired, patchDraft: PropTypes.func.isRequired, bitrates: PropTypes.array }
-LocalImageSettingsPanel.propTypes = { draft: PropTypes.object.isRequired, patchDraft: PropTypes.func.isRequired }
-Select.propTypes = { label: PropTypes.string.isRequired, value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired, options: PropTypes.array.isRequired, onChange: PropTypes.func.isRequired }
-NumberInput.propTypes = { label: PropTypes.string.isRequired, value: PropTypes.number.isRequired, min: PropTypes.number.isRequired, max: PropTypes.number.isRequired, onChange: PropTypes.func.isRequired }
+SelectField.propTypes = { label: PropTypes.string.isRequired, value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired, options: PropTypes.array.isRequired, onChange: PropTypes.func.isRequired }
 Check.propTypes = { label: PropTypes.string.isRequired, checked: PropTypes.bool.isRequired, onChange: PropTypes.func.isRequired }
 PreferenceCards.propTypes = { title: PropTypes.string.isRequired, options: PropTypes.array.isRequired, value: PropTypes.string, disabled: PropTypes.bool, onChange: PropTypes.func.isRequired }
 ReadySettings.propTypes = { settings: PropTypes.object.isRequired, saveSettings: PropTypes.func.isRequired, replaceSettings: PropTypes.func.isRequired }

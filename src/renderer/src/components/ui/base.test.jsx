@@ -6,6 +6,7 @@ import {
   AppInput,
   AppPanel,
   AppSelect,
+  AppSelectField,
   AppTabs,
   EmptyState,
   StatusPill
@@ -44,6 +45,9 @@ describe('base UI components', () => {
         <AppSelect aria-label="Mode" defaultValue="x">
           <option value="x">X</option>
         </AppSelect>
+        <AppSelectField label="Format" aria-label="Format" defaultValue="png" error="Required">
+          <option value="png">PNG</option>
+        </AppSelectField>
       </>
     )
 
@@ -51,5 +55,7 @@ describe('base UI components', () => {
     expect(onChange).toHaveBeenCalledWith('b')
     expect(screen.getByLabelText('Name')).toHaveClass('app-input')
     expect(screen.getByLabelText('Mode')).toHaveClass('app-input')
+    expect(screen.getByLabelText('Format')).toHaveClass('app-input')
+    expect(screen.getByText('Required')).toHaveClass('text-red-500')
   })
 })

@@ -5,7 +5,7 @@ describe('task records', () => {
   beforeEach(() => localStorage.clear())
 
   it('does not read the old history key', () => {
-    localStorage.setItem('tinypress_task_records_v4', JSON.stringify([{ id: 'old' }]))
+    localStorage.setItem('tinypress_task_records_v5', JSON.stringify([{ id: 'old' }]))
     expect(loadTaskRecords()).toEqual([])
   })
 

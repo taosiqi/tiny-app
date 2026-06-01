@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use settings::{
     current_backup_dir_name, is_valid_backup_dir_name, load_settings, normalize_settings,
     normalize_tinypng_keys, persist_settings, should_hide_instead_of_quit, AppSettings,
-    LocalImageSettings, SettingsState, StoredTinypngKey, DEFAULT_BACKUP_DIR_NAME,
+    SettingsState, StoredTinypngKey, DEFAULT_BACKUP_DIR_NAME,
 };
 
 #[derive(Default)]
@@ -83,7 +83,7 @@ struct ExportedSettings {
 fn encode_exported_settings(settings: AppSettings) -> AppResult<String> {
     serde_json::to_string_pretty(&ExportedSettings {
         format: "tinypress-settings".into(),
-        version: 1,
+        version: 2,
         settings,
     })
     .map_err(|e| e.to_string())
@@ -94,7 +94,7 @@ fn decode_exported_settings(raw: &str) -> AppResult<AppSettings> {
     if exported.format != "tinypress-settings" {
         return Err("不是 TinyPress 配置文件".into());
     }
-    if exported.version != 1 {
+    if exported.version != 2 {
         return Err(format!("不支持的配置文件版本：{}", exported.version));
     }
     Ok(normalize_settings(exported.settings))
@@ -321,7 +321,7 @@ async fn compress_image(
             || (engine == "auto" && pick_key(&payload.api_keys, &exhausted_keys).is_none())
         {
             force_local = true;
-            match compress_local_image_file(file, &payload.local, &ffmpeg) {
+            match compress_local_image_file(file, &ffmpeg) {
                 Ok(mut result) if result.success => {
                     if engine == "auto" {
                         result.warnings.push("自动选择已使用本地压缩".into());
@@ -417,7 +417,7 @@ async fn compress_image(
                     if key.is_none() {
                         if engine == "auto" {
                             force_local = true;
-                            match compress_local_image_file(file, &payload.local, &ffmpeg) {
+                            match compress_local_image_file(file, &ffmpeg) {
                                 Ok(mut result) if result.success => {
                                     result
                                         .warnings
@@ -1449,99 +1449,19 @@ fn replace_file_from_temp(temp_path: &Path, file_path: &Path) -> AppResult<()> {
     result
 }
 
-fn optimize_png_file(
-    file_path: &Path,
-    settings: &LocalImageSettings,
-) -> AppResult<CompressionResult> {
+fn optimize_png_file(file_path: &Path) -> AppResult<CompressionResult> {
     let input = fs::read(file_path).map_err(|e| e.to_string())?;
-    let mut warnings = if has_png_chunk(&input, b"acTL") {
+    let warnings = if has_png_chunk(&input, b"acTL") {
         vec!["检测到 APNG：已保留动画并仅执行无损优化".into()]
     } else {
         Vec::new()
     };
-    let encoded = if settings.png.mode == "lossless" || !warnings.is_empty() {
-        input.clone()
-    } else {
-        warnings.push("PNG 有损量化会移除辅助元数据，请确认色彩显示".into());
-        let bitmap = lodepng::decode32(&input).map_err(|e| e.to_string())?;
-        let pixels = bitmap
-            .buffer
-            .iter()
-            .map(|pixel| imagequant::RGBA::new(pixel.r, pixel.g, pixel.b, pixel.a))
-            .collect::<Vec<_>>();
-        let mut quantizer = imagequant::new();
-        quantizer
-            .set_quality(settings.png.min_quality, settings.png.max_quality)
-            .map_err(|e| e.to_string())?;
-        quantizer
-            .set_max_colors(settings.png.max_colors as u32)
-            .map_err(|e| e.to_string())?;
-        let mut image = quantizer
-            .new_image(pixels, bitmap.width, bitmap.height, 0.0)
-            .map_err(|e| e.to_string())?;
-        let mut result = quantizer.quantize(&mut image).map_err(|e| e.to_string())?;
-        result.set_dithering_level(1.0).map_err(|e| e.to_string())?;
-        let (palette, indexed) = result.remapped(&mut image).map_err(|e| e.to_string())?;
-        let palette = palette
-            .into_iter()
-            .map(|color| lodepng::RGBA::new(color.r, color.g, color.b, color.a))
-            .collect::<Vec<_>>();
-        let mut encoder = lodepng::Encoder::new();
-        encoder.set_palette(&palette).map_err(|e| e.to_string())?;
-        encoder
-            .encode(&indexed, bitmap.width, bitmap.height)
-            .map_err(|e| e.to_string())?
-    };
-    let optimized = oxipng::optimize_from_memory(&encoded, &oxipng::Options::default())
+    let optimized = oxipng::optimize_from_memory(&input, &oxipng::Options::default())
         .map_err(|e| e.to_string())?;
     replace_if_smaller(file_path, optimized, "png", warnings)
 }
 
-fn optimize_jpeg_file(
-    file_path: &Path,
-    settings: &LocalImageSettings,
-) -> AppResult<CompressionResult> {
-    let image = image::ImageReader::open(file_path)
-        .map_err(|e| e.to_string())?
-        .decode()
-        .map_err(|e| e.to_string())?
-        .to_rgb8();
-    let (width, height) = image.dimensions();
-    let encoded = mozjpeg_rs::Encoder::new(mozjpeg_rs::Preset::ProgressiveBalanced)
-        .quality(settings.jpeg.quality)
-        .progressive(settings.jpeg.progressive)
-        .encode_rgb(image.as_raw(), width, height)
-        .map_err(|e| e.to_string())?;
-    replace_if_smaller(
-        file_path,
-        encoded,
-        "jpeg",
-        vec!["JPEG 本地重编码会移除 EXIF 和 ICC 元数据，请确认方向与色彩显示".into()],
-    )
-}
-
-fn detect_hdr(file_path: &Path, ffmpeg: &Path) -> bool {
-    Command::new(ffmpeg)
-        .arg("-hide_banner")
-        .arg("-i")
-        .arg(file_path)
-        .output()
-        .map(|output| {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-            stderr.contains("bt2020")
-                || stderr.contains("smpte2084")
-                || stderr.contains("arib-std-b67")
-        })
-        .unwrap_or(false)
-}
-
-fn image_ffmpeg_args(
-    format: &str,
-    settings: &LocalImageSettings,
-    input: &str,
-    output: &str,
-    hdr: bool,
-) -> Vec<String> {
+fn webp_lossless_ffmpeg_args(input: &str, output: &str) -> Vec<String> {
     let mut args = vec![
         "-hide_banner".into(),
         "-loglevel".into(),
@@ -1549,79 +1469,65 @@ fn image_ffmpeg_args(
         "-i".into(),
         input.into(),
     ];
-    if format == "avif" && hdr {
-        args.extend(["-vf", "zscale=t=linear:npl=100,tonemap=tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"].map(str::to_string));
-    }
-    match format {
-        "webp" => args.extend([
-            "-frames:v".into(),
-            "1".into(),
-            "-c:v".into(),
-            "libwebp".into(),
-            "-quality".into(),
-            settings.webp.quality.to_string(),
-            "-lossless".into(),
-            if settings.webp.mode == "lossless" {
-                "1".into()
-            } else {
-                "0".into()
-            },
-        ]),
-        _ => args.extend([
-            "-frames:v".into(),
-            "1".into(),
-            "-c:v".into(),
-            "libaom-av1".into(),
-            "-still-picture".into(),
-            "1".into(),
-            "-crf".into(),
-            ((100 - settings.avif.quality as u32) * 63 / 100).to_string(),
-            "-cpu-used".into(),
-            settings.avif.speed.to_string(),
-        ]),
-    }
+    args.extend([
+        "-frames:v".into(),
+        "1".into(),
+        "-c:v".into(),
+        "libwebp".into(),
+        "-lossless".into(),
+        "1".into(),
+    ]);
     args.extend([output.into(), "-y".into()]);
     args
 }
 
-fn compress_local_image_file(
-    file_path: &Path,
-    settings: &LocalImageSettings,
-    ffmpeg: &Path,
-) -> AppResult<CompressionResult> {
+fn local_skip_result(file_path: &Path, format: &str, reason: &str) -> AppResult<CompressionResult> {
+    let size = fs::metadata(file_path).map_err(|e| e.to_string())?.len();
+    Ok(CompressionResult {
+        success: false,
+        format: Some(format.into()),
+        input_size: size,
+        output_size: size,
+        saved_bytes: None,
+        reason: Some(reason.into()),
+        compression_count: 0,
+        engine: Some("local".into()),
+        warnings: Vec::new(),
+    })
+}
+
+fn compress_local_image_file(file_path: &Path, ffmpeg: &Path) -> AppResult<CompressionResult> {
     let format = image_format_from_path(file_path).ok_or_else(|| "不支持的图片格式".to_string())?;
     if format == "png" {
-        return optimize_png_file(file_path, settings);
+        return optimize_png_file(file_path);
     }
     if format == "jpeg" {
-        return optimize_jpeg_file(file_path, settings);
+        return local_skip_result(
+            file_path,
+            format,
+            "本地严格无损暂不支持 JPEG，请使用 Tinify API",
+        );
+    }
+    if format == "avif" {
+        return local_skip_result(
+            file_path,
+            format,
+            "本地严格无损暂不支持 AVIF，请使用 Tinify API",
+        );
     }
     let input = file_path.to_string_lossy().to_string();
     let temp_path = PathBuf::from(format!("{}.tiny-local.{}", input, format));
     let temp = temp_path.to_string_lossy().to_string();
-    let hdr = format == "avif" && detect_hdr(file_path, ffmpeg);
-    let mut warnings = vec!["本地重编码会移除辅助元数据，请确认方向与色彩显示".into()];
-    if format == "webp" {
-        let bytes = fs::read(file_path).map_err(|e| e.to_string())?;
-        if bytes.windows(4).any(|chunk| chunk == b"ANIM") {
-            return Ok(CompressionResult {
-                success: false,
-                format: Some("webp".into()),
-                input_size: bytes.len() as u64,
-                output_size: bytes.len() as u64,
-                saved_bytes: None,
-                reason: Some("动画 WebP 暂不支持本地压缩，请改用 Tinify API".into()),
-                compression_count: 0,
-                engine: Some("local".into()),
-                warnings: vec!["检测到动画 WebP，已保留原文件".into()],
-            });
-        }
-    }
-    if format == "avif" && hdr {
-        warnings.push("检测到 HDR AVIF：本地压缩已降级为 SDR".into());
+    let bytes = fs::read(file_path).map_err(|e| e.to_string())?;
+    if bytes.windows(4).any(|chunk| chunk == b"ANIM") {
+        return local_skip_result(
+            file_path,
+            format,
+            "动画 WebP 暂不支持本地严格无损压缩，请使用 Tinify API",
+        );
     }
     let output = Command::new(ffmpeg)
-        .args(image_ffmpeg_args(format, settings, &input, &temp, hdr))
+        .args(webp_lossless_ffmpeg_args(&input, &temp))
         .output()
         .map_err(|e| format!("ffmpeg 启动失败：{}", e))?;
     if !output.status.success() || !temp_path.exists() {
@@ -1633,7 +1539,7 @@ fn compress_local_image_file(
     }
     let bytes = fs::read(&temp_path).map_err(|e| e.to_string())?;
     let _ = fs::remove_file(&temp_path);
-    replace_if_smaller(file_path, bytes, format, warnings)
+    replace_if_smaller(file_path, bytes, format, Vec::new())
 }
 
 fn compress_audio_file(
@@ -1926,7 +1832,7 @@ mod tests {
         let decoded = decode_exported_settings(&encoded).unwrap();
 
         assert!(encoded.contains("\"format\": \"tinypress-settings\""));
-        assert!(encoded.contains("\"version\": 1"));
+        assert!(encoded.contains("\"version\": 2"));
         assert_eq!(decoded.night_mode, "dark");
         assert_eq!(decoded.tinypng_keys[0].value, "secret-key");
         assert_eq!(decoded.tinypng_keys[0].compression_count, Some(12));
@@ -1936,10 +1842,10 @@ mod tests {
     fn rejects_invalid_or_unknown_settings_exports() {
         assert!(decode_exported_settings("not json").is_err());
         assert!(
-            decode_exported_settings(r#"{"format":"other","version":1,"settings":{}}"#).is_err()
+            decode_exported_settings(r#"{"format":"other","version":2,"settings":{}}"#).is_err()
         );
         assert!(decode_exported_settings(
-            r#"{"format":"tinypress-settings","version":2,"settings":{}}"#
+            r#"{"format":"tinypress-settings","version":1,"settings":{}}"#
         )
         .is_err());
     }
@@ -2058,36 +1964,29 @@ mod tests {
             return;
         }
         let dir = tempdir().unwrap();
-        let settings = settings::LocalImageSettings::default();
         for name in ["sample.png", "sample.jpg", "sample.webp", "sample.avif"] {
             let target = dir.path().join(name);
             fs::copy(root.join(name), &target).unwrap();
-            let result = compress_local_image_file(&target, &settings, &ffmpeg).unwrap();
+            let result = compress_local_image_file(&target, &ffmpeg).unwrap();
             assert!(result.success || result.reason.is_some());
             assert_eq!(result.engine.as_deref(), Some("local"));
         }
         let animated = dir.path().join("animated.webp");
         fs::copy(root.join("animated.webp"), &animated).unwrap();
-        let result = compress_local_image_file(&animated, &settings, &ffmpeg).unwrap();
+        let result = compress_local_image_file(&animated, &ffmpeg).unwrap();
         assert!(result.reason.unwrap().contains("动画 WebP"));
 
         let transparent = dir.path().join("transparent.png");
         fs::copy(root.join("transparent.png"), &transparent).unwrap();
-        let before = lodepng::decode32_file(&transparent).unwrap();
-        let _ = compress_local_image_file(&transparent, &settings, &ffmpeg).unwrap();
-        let after = lodepng::decode32_file(&transparent).unwrap();
-        assert_eq!(
-            before
-                .buffer
-                .iter()
-                .map(|pixel| pixel.a)
-                .collect::<Vec<_>>(),
-            after.buffer.iter().map(|pixel| pixel.a).collect::<Vec<_>>()
-        );
+        let _ = compress_local_image_file(&transparent, &ffmpeg).unwrap();
+        assert!(fs::read(&transparent)
+            .unwrap()
+            .windows(4)
+            .any(|chunk| chunk == b"IDAT"));
 
         let apng = dir.path().join("animated.png");
         fs::copy(root.join("animated.png"), &apng).unwrap();
-        let result = compress_local_image_file(&apng, &settings, &ffmpeg).unwrap();
+        let result = compress_local_image_file(&apng, &ffmpeg).unwrap();
         assert!(result
             .warnings
             .iter()
@@ -2099,23 +1998,29 @@ mod tests {
     }
 
     #[test]
-    fn maps_local_image_settings_to_ffmpeg_arguments() {
-        let settings = settings::LocalImageSettings::default();
-        let webp = image_ffmpeg_args("webp", &settings, "in.webp", "out.webp", false);
+    fn maps_local_webp_to_lossless_ffmpeg_arguments() {
+        let webp = webp_lossless_ffmpeg_args("in.webp", "out.webp");
         assert!(webp.windows(2).any(|pair| pair == ["-c:v", "libwebp"]));
-        let avif = image_ffmpeg_args("avif", &settings, "in.avif", "out.avif", false);
-        assert!(avif.windows(2).any(|pair| pair == ["-c:v", "libaom-av1"]));
-        assert!(avif.windows(2).any(|pair| pair == ["-cpu-used", "6"]));
+        assert!(webp.windows(2).any(|pair| pair == ["-lossless", "1"]));
     }
 
     #[test]
-    fn creates_progressive_jpeg_when_enabled() {
-        let encoded = mozjpeg_rs::Encoder::new(mozjpeg_rs::Preset::ProgressiveBalanced)
-            .quality(82)
-            .progressive(true)
-            .encode_rgb(&[90; 8 * 8 * 3], 8, 8)
-            .unwrap();
-        assert!(encoded.windows(2).any(|marker| marker == [0xff, 0xc2]));
+    fn local_engine_skips_formats_without_strict_lossless_support() {
+        let dir = tempdir().unwrap();
+        let jpeg = dir.path().join("sample.jpg");
+        let avif = dir.path().join("sample.avif");
+        fs::write(&jpeg, b"jpeg").unwrap();
+        fs::write(&avif, b"avif").unwrap();
+        assert!(compress_local_image_file(&jpeg, Path::new("ffmpeg"))
+            .unwrap()
+            .reason
+            .unwrap()
+            .contains("JPEG"));
+        assert!(compress_local_image_file(&avif, Path::new("ffmpeg"))
+            .unwrap()
+            .reason
+            .unwrap()
+            .contains("AVIF"));
     }
 
     #[test]

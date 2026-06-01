@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AudioTool from './AudioTool'
 import { ToastProvider } from '../toast/ToastContext'
-import { compressAudio, onAudioPaused, openFiles } from '../api/desktop'
+import { compressAudio, onAudioDone, onAudioPaused, openFiles } from '../api/desktop'
 import { TASK_RECORDS_KEY } from '../tasks/taskHistory'
 
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: (path) => `asset://${path}` }))
@@ -58,5 +58,17 @@ describe('AudioTool', () => {
     expect(records[0].logs.at(-1).status).toBe('paused')
     fireEvent.click(await screen.findByRole('button', { name: '继续压缩（1 个）' }))
     await waitFor(() => expect(compressAudio).toHaveBeenLastCalledWith(expectedPayload(['/tmp/left.mp3'])))
+  })
+
+  it('clears paths only after a fully successful task', async () => {
+    openFiles.mockResolvedValueOnce(['/tmp/audio.mp3'])
+    compressAudio.mockResolvedValue()
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '+ 添加文件' }))
+    await screen.findByText('已添加 1 个文件或目录')
+    fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
+    await waitFor(() => expect(onAudioDone).toHaveBeenCalled())
+    onAudioDone.mock.calls.at(-1)[0]({ total: 1, processed: 1, skipped: 0, failed: 0, savedBytes: '1 KB' })
+    expect(await screen.findByText('点击上方按钮添加 .mp3 / .ogg / .wav 文件或目录')).toBeInTheDocument()
   })
 })

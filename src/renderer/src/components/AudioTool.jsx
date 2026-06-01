@@ -163,6 +163,7 @@ export default function AudioTool() {
     const cleanDone = onAudioDone((nextStats) => {
       setStats(nextStats)
       setRunning(false)
+      if (nextStats.failed === 0 && nextStats.skipped === 0) setPaths([])
       toast.success(`音频压缩完成：成功 ${nextStats.processed}，失败 ${nextStats.failed}，跳过 ${nextStats.skipped}`)
       if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, nextStats.failed > 0 ? 'error' : 'success', nextStats, taskRecordRef.current.logs))
       cleanup()

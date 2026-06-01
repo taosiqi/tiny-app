@@ -176,6 +176,7 @@ export default function TinyPNG() {
     const cleanDone = onImageDone((s) => {
       setStats(s)
       setRunning(false)
+      if (s.failed === 0 && s.skipped === 0) setPaths([])
       toast.success(`图片压缩完成：成功 ${s.processed}，失败 ${s.failed}，跳过 ${s.skipped}`)
       if (taskRecordRef.current) upsertTaskRecord(finishTaskRecord(taskRecordRef.current, s.failed > 0 ? 'error' : 'success', s, taskRecordRef.current.logs))
       // 任务完成后清理所有 IPC 监听器，防止泄漏

@@ -1,4 +1,3 @@
-use crate::settings::LocalImageSettings;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -8,7 +7,6 @@ pub(crate) struct ImagePayload {
     pub api_keys: Vec<String>,
     pub recursive: Option<bool>,
     pub engine: String,
-    pub local: LocalImageSettings,
 }
 
 #[derive(Debug, Deserialize)]

@@ -914,6 +914,28 @@ main {
   border-color: rgba(41, 37, 36, 0.18) !important;
 }
 
+.app-select-wrap {
+  position: relative;
+}
+
+.app-select-wrap::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0.9rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: #78716c;
+  pointer-events: none;
+  transform: translateY(-70%) rotate(45deg);
+}
+
+.app-select-wrap select {
+  appearance: none;
+}
+
 .status-pill-neutral {
   color: #57534e;
   background: rgba(231, 229, 228, 0.76);

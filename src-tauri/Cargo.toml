@@ -1,6 +1,6 @@
 [package]
 name = "tiny-app"
-version = "2.2.0"
+version = "2.2.1"
 description = "A Tauri desktop utility for TinyPNG and audio compression"
 authors = ["taosiqi"]
 edition = "2021"
@@ -21,10 +21,6 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tokio = { version = "1", features = ["process"] }
 urlencoding = "2"
 sha2 = "0.10"
-imagequant = "4.4"
-lodepng = "3.12"
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
-mozjpeg-rs = "0.9"
 oxipng = "10.1"
 
 [dev-dependencies]
